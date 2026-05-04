@@ -22,7 +22,7 @@ export default function Layout() {
 
           <TabsContent
             value="image-to-reels"
-            className="flex flex-1 flex-col overflow-hidden mt-4"
+            className="flex flex-1 overflow-hidden mt-4"
           >
             <ImageToReels />
           </TabsContent>

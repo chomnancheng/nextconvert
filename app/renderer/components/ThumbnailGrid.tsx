@@ -6,9 +6,10 @@ interface ThumbnailGridProps {
   files: ImageFile[];
   onRemove: (id: string) => void;
   onClear: () => void;
+  disabled?: boolean;
 }
 
-export default function ThumbnailGrid({ files, onRemove, onClear }: ThumbnailGridProps) {
+export default function ThumbnailGrid({ files, onRemove, onClear, disabled = false }: ThumbnailGridProps) {
   if (files.length === 0) return null;
 
   return (
@@ -21,9 +22,13 @@ export default function ThumbnailGrid({ files, onRemove, onClear }: ThumbnailGri
         <button
           type="button"
           onClick={onClear}
+          disabled={disabled}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium",
-            "text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors",
+            "transition-colors",
+            disabled
+              ? "text-muted-foreground/40 cursor-not-allowed"
+              : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
           )}
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -57,18 +62,20 @@ export default function ThumbnailGrid({ files, onRemove, onClear }: ThumbnailGri
               </p>
             </div>
             {/* Remove button */}
-            <button
-              type="button"
-              onClick={() => onRemove(file.id)}
-              aria-label={`Remove ${file.name}`}
-              className={cn(
-                "absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full",
-                "bg-black/60 text-white opacity-0 group-hover:opacity-100",
-                "hover:bg-black/80 transition-opacity duration-150",
-              )}
-            >
-              <X className="h-3 w-3" />
-            </button>
+            {!disabled && (
+              <button
+                type="button"
+                onClick={() => onRemove(file.id)}
+                aria-label={`Remove ${file.name}`}
+                className={cn(
+                  "absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full",
+                  "bg-black/60 text-white opacity-0 group-hover:opacity-100",
+                  "hover:bg-black/80 transition-opacity duration-150",
+                )}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </div>
         ))}
       </div>

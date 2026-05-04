@@ -111,3 +111,62 @@ A desktop app built with Electron that converts images or folders into short vid
 - Convert images to video
 - Output saved correctly
 - Login required
+
+---
+
+## 🎬 Extended Settings (NEW)
+
+### 1. Duration
+- Default video length: 59 seconds
+- User can adjust (range: 5–120 seconds)
+
+Behavior:
+- Single image → stretch to full duration
+- Multiple images → auto distribute duration evenly
+
+---
+
+### 2. Music (NEW FEATURE)
+
+User can:
+- Select a folder containing mp3 files
+- System randomly picks 1 mp3 per video
+
+Options:
+- Toggle: Enable / Disable music
+- Volume control (0–100)
+
+Behavior:
+- If multiple videos → random track per video
+- Trim or loop audio to match video duration
+
+---
+
+### 3. Custom Settings Panel
+
+UI must include:
+
+- Duration input (seconds)
+- Music folder selector
+- Toggle music ON/OFF
+- Volume slider
+- Watermark settings
+- Metadata fields
+
+---
+
+### 4. FFmpeg Audio Logic
+
+- Randomly pick mp3 from folder
+- Trim audio to match video length:
+  - Use `-shortest` OR trim filter
+- Loop if shorter:
+  - `-stream_loop -1`
+
+---
+
+### 5. UX Requirements
+
+- Show selected music folder path
+- Show number of mp3 files detected
+- Warn if folder is empty
