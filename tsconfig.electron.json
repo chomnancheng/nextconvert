@@ -5,11 +5,11 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "outDir": "dist/electron",
-    "rootDir": "app/electron",
+    "rootDir": "app",
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "sourceMap": true
   },
-  "include": ["app/electron"]
+  "include": ["app/electron", "app/lib"]
 }

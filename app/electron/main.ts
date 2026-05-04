@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import path from "path";
 import fs from "fs";
+import { convert } from "../lib/ffmpeg";
+import type { ConvertOptions } from "../lib/ffmpeg";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -30,7 +32,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.js"), // __dirname = dist/electron/electron/
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -40,12 +42,17 @@ function createWindow() {
     win.loadURL("http://localhost:5173");
     win.webContents.openDevTools();
   } else {
-    win.loadFile(path.join(__dirname, "../renderer/index.html"));
+    win.loadFile(path.join(__dirname, "../../renderer/index.html"));
   }
+
+  return win;
 }
 
 app.whenReady().then(() => {
-  // Open native file picker → returns absolute paths of selected image files
+  const win = createWindow();
+
+  // ── File / folder dialogs ──────────────────────────────────────────────────
+
   ipcMain.handle("dialog:openFiles", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ["openFile", "multiSelections"],
@@ -54,7 +61,6 @@ app.whenReady().then(() => {
     return canceled ? [] : filePaths;
   });
 
-  // Open native folder picker → returns all image paths inside recursively
   ipcMain.handle("dialog:openFolder", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ["openDirectory"],
@@ -63,7 +69,24 @@ app.whenReady().then(() => {
     return collectImages(filePaths[0]);
   });
 
-  createWindow();
+  // ── FFmpeg conversion ──────────────────────────────────────────────────────
+
+  /**
+   * Channel: "convert:run"
+   * Payload: { jobId: string; options: ConvertOptions }
+   * Returns: ConvertResult
+   *
+   * Progress is streamed back via "convert:progress" events:
+   *   { jobId, percent }
+   */
+  ipcMain.handle(
+    "convert:run",
+    async (_event, jobId: string, options: ConvertOptions) => {
+      return convert(options, (percent) => {
+        win.webContents.send("convert:progress", { jobId, percent });
+      });
+    },
+  );
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

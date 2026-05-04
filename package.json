@@ -2,7 +2,7 @@
   "name": "nextconvert",
   "version": "0.1.0",
   "description": "Image to Reels converter desktop app",
-  "main": "dist/electron/main.js",
+  "main": "dist/electron/electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"bun run dev:renderer\" \"bun run dev:electron\"",
     "dev:renderer": "vite",
@@ -18,12 +18,14 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron": "^41.5.0",
+    "ffmpeg-static": "^5.3.0",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
+    "@types/ffmpeg-static": "^5.1.0",
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

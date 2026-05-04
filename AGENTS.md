@@ -20,9 +20,11 @@ Two separate TypeScript compilation targets — do not mix them:
 | Layer | Source | Compiler | Output | tsconfig |
 |---|---|---|---|---|
 | Renderer | `app/renderer/` | Vite (bundler mode) | `dist/renderer/` | `tsconfig.json` |
-| Electron main + preload | `app/electron/` | `tsc` | `dist/electron/` | `tsconfig.electron.json` |
+| Electron main + preload | `app/electron/` | `tsc` | `dist/electron/electron/` | `tsconfig.electron.json` |
+| Shared lib | `app/lib/` | `tsc` (same config) | `dist/electron/lib/` | `tsconfig.electron.json` |
 
-- `package.json` `"main"` points to `dist/electron/main.js` (CJS).
+- `package.json` `"main"` points to `dist/electron/electron/main.js` (CJS).
+- `tsconfig.electron.json` has `rootDir: "app"` and `include: ["app/electron", "app/lib"]` so that `app/lib/` code can be imported by the main process. **Do not change `rootDir` back to `app/electron`** — it will break the import of `app/lib/ffmpeg.ts`.
 - Electron main loads the Vite dev server (`http://localhost:5173`) in dev, and `dist/renderer/index.html` in production. The `NODE_ENV` env var controls the branch in `app/electron/main.ts`.
 - Preload uses `contextBridge` + `contextIsolation: true`. All new IPC APIs go in `app/electron/preload.ts` and are typed under `window.electronAPI`.
 
