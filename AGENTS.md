@@ -42,7 +42,8 @@ dist/           Build output (gitignored)
 ## Tailwind + shadcn/ui
 
 - Tailwind 3 with CSS variable tokens defined in `app/renderer/globals.css`.
-- `components.json` is configured for shadcn/ui CLI: `npx shadcn@latest add <component>` will place components in `app/renderer/components/` and use `app/lib/utils.ts` for the `cn()` helper.
+- `components.json` is configured for shadcn/ui CLI: `npx shadcn@latest add <component>` places components in `app/renderer/components/ui/` and uses `app/lib/utils.ts` for `cn()`.
+- **After any `shadcn add`**, verify the generated file imports `cn` as `@/lib/utils`, not `app/lib/utils` — the CLI sometimes emits the bare path, which Vite cannot resolve.
 - `postcss.config.js` uses `module.exports` (CJS syntax). Do **not** convert it to ESM — the package has no `"type": "module"` and Electron main requires CJS output.
 
 ## Critical quirks

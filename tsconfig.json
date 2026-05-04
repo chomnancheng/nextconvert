@@ -20,5 +20,5 @@
       "@/*": ["app/*"]
     }
   },
-  "include": ["app/renderer"]
+  "include": ["app/renderer", "app/lib"]
 }
