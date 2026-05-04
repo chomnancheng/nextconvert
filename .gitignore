@@ -1,0 +1,94 @@
+# -----------------------------
+# Dependencies
+# -----------------------------
+node_modules/
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# -----------------------------
+# Build / Output
+# -----------------------------
+dist/
+build/
+out/
+.release/
+coverage/
+
+# Electron build artifacts
+*.asar
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.snap
+
+# -----------------------------
+# Vite / React
+# -----------------------------
+.vite/
+vite.config.ts.timestamp-*
+
+# -----------------------------
+# Environment
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+# -----------------------------
+# Logs
+# -----------------------------
+logs/
+*.log
+npm-debug.log*
+bun-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# -----------------------------
+# OS Files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# IDE / Editor
+# -----------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# -----------------------------
+# Cache / Temp
+# -----------------------------
+.cache/
+.tmp/
+temp/
+
+# -----------------------------
+# Electron / App Data (IMPORTANT)
+# -----------------------------
+# Local auth tokens, user data, settings
+user-data/
+app-data/
+*.sqlite
+*.db
+
+# -----------------------------
+# FFmpeg Outputs (optional)
+# -----------------------------
+converted/
+*.mp4
+
+# -----------------------------
+# TypeScript
+# -----------------------------
+*.tsbuildinfo
+
+# -----------------------------
+# Misc
+# -----------------------------
+*.local
