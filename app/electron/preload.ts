@@ -1,7 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-// Expose safe APIs to the renderer via window.electronAPI
+export interface ElectronAPI {
+  /** Open native file picker, returns absolute paths of chosen image files */
+  openFiles: () => Promise<string[]>;
+  /** Open native folder picker, returns absolute paths of all images inside recursively */
+  openFolder: () => Promise<string[]>;
+}
+
 contextBridge.exposeInMainWorld("electronAPI", {
-  // Will be expanded as features are added (file dialogs, ffmpeg, etc.)
-  ping: () => ipcRenderer.invoke("ping"),
-});
+  openFiles: () => ipcRenderer.invoke("dialog:openFiles"),
+  openFolder: () => ipcRenderer.invoke("dialog:openFolder"),
+} satisfies ElectronAPI);
