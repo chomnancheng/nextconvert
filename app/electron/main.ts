@@ -61,6 +61,11 @@ function isVersionNewer(latest: string, current: string): boolean {
   return false;
 }
 
+function extractVersionFromAssetName(assetName: string): string | null {
+  const m = assetName.match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+
 function fetchJson(pathname: string): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.get(
@@ -346,7 +351,13 @@ app.whenReady().then(() => {
     try {
       const currentVersion = app.getVersion();
       const latest = await fetchLatestRelease();
-      const latestVersion = latest.tag_name.replace(/^v/i, "");
+      const tagVersion = latest.tag_name.replace(/^v/i, "");
+      const asset = chooseAsset(latest.assets ?? []);
+      // Prefer version parsed from actual downloadable installer name.
+      // This prevents update loops when tag and app version drift.
+      const latestVersion =
+        (asset ? extractVersionFromAssetName(asset.name) : null) ??
+        tagVersion;
       return {
         ok: true,
         hasUpdate: isVersionNewer(latestVersion, currentVersion),
@@ -365,8 +376,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle("update:downloadLatest", async () => {
     try {
+      const currentVersion = app.getVersion();
       const latest = await fetchLatestRelease();
-      const latestVersion = latest.tag_name.replace(/^v/i, "");
+      const tagVersion = latest.tag_name.replace(/^v/i, "");
       if (!latest.assets || latest.assets.length === 0) {
         return {
           ok: false,
@@ -376,6 +388,10 @@ app.whenReady().then(() => {
       const asset = chooseAsset(latest.assets);
       if (!asset) {
         return { ok: false, error: `No compatible installer found for ${process.platform}/${process.arch}.` };
+      }
+      const latestVersion = extractVersionFromAssetName(asset.name) ?? tagVersion;
+      if (!isVersionNewer(latestVersion, currentVersion)) {
+        return { ok: false, error: `Current version (${currentVersion}) is already up to date.` };
       }
       const downloadsDir = path.join(os.homedir(), "Downloads", "NextConvert-updates");
       fs.mkdirSync(downloadsDir, { recursive: true });
