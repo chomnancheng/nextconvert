@@ -1,11 +1,26 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/renderer/components/ui/tabs";
-import { Film } from "lucide-react";
+import { DownloadCloud, Film, Loader2, Moon, Sun } from "lucide-react";
 import ImageToReels from "@/renderer/pages/ImageToReels";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Layout() {
   const [isChecking, setIsChecking] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string>("");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("themeMode");
+    const mode = saved === "dark" ? "dark" : "light";
+    setTheme(mode);
+    document.documentElement.classList.toggle("dark", mode === "dark");
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("themeMode", next);
+    document.documentElement.classList.toggle("dark", next === "dark");
+  };
 
   const handleUpdateClick = async () => {
     if (isChecking) return;
@@ -48,11 +63,30 @@ export default function Layout() {
           )}
           <button
             type="button"
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-60"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border hover:bg-accent"
+            onClick={toggleTheme}
+          >
+            {theme === "dark" ? (
+              <Sun className="h-4 w-4 text-foreground" aria-hidden />
+            ) : (
+              <Moon className="h-4 w-4 text-foreground" aria-hidden />
+            )}
+            <span className="sr-only">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+          </button>
+          <button
+            type="button"
+            title="Check for updates"
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-60"
             onClick={handleUpdateClick}
             disabled={isChecking}
           >
-            {isChecking ? "Updating..." : "Update"}
+            {isChecking ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+            ) : (
+              <DownloadCloud className="h-4 w-4 shrink-0" aria-hidden />
+            )}
+            {isChecking ? "Updating…" : "Update"}
           </button>
         </div>
       </header>
