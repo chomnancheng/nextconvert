@@ -8,8 +8,10 @@ import type { ConvertOptionsLegacy } from "../lib/ffmpeg";
 import { initStore, storeGet, storeSet } from "../lib/store";
 
 const execFileAsync = promisify(execFile);
+// In a packaged app the binary is in app.asar.unpacked, not app.asar
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const ffmpegBin: string = require("ffmpeg-static") as string;
+const ffmpegBin: string = (require("ffmpeg-static") as string)
+  .replace(/app\.asar([/\\])/, "app.asar.unpacked$1");
 
 const isDev = process.env.NODE_ENV === "development";
 

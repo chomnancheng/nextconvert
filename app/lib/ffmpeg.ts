@@ -11,7 +11,25 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const ffmpegBin: string = require("ffmpeg-static") as string;
+let ffmpegBin: string = "";
+
+const getFfmpegPath = (): string => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const staticPath = require("ffmpeg-static") as string;
+    if (staticPath) {
+      // In a packaged Electron app the binary lives in app.asar.unpacked,
+      // but require() still returns the app.asar path — fix it up.
+      return staticPath.replace(/app\.asar([/\\])/, "app.asar.unpacked$1");
+    }
+  } catch (e) {
+    console.error("[ffmpeg] require failed:", e);
+  }
+  return "";
+};
+
+ffmpegBin = getFfmpegPath();
+console.log("[ffmpeg] binary:", ffmpegBin);
 
 // ---------------------------------------------------------------------------
 // Public types

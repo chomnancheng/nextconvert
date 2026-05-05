@@ -1,0 +1,30 @@
+appId: com.nextconvert.app
+productName: nextconvert
+
+# Keep ffmpeg binary outside the asar so it can be executed at runtime
+asarUnpack:
+  - "node_modules/ffmpeg-static/**"
+
+files:
+  - dist/**
+  - node_modules/**
+  - package.json
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.video
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+directories:
+  output: release/dist
+  buildResources: build
