@@ -37,7 +37,7 @@ app/
   renderer/components/   UI components
   renderer/pages/        Page-level components
   lib/          Shared logic (utils.ts, future: ffmpeg, auth helpers)
-docs/           APP_SPEC.md, AI_INSTRUCTIONS.md
+docs/           APP_SPEC.md, AI_INSTRUCTIONS.md, UPDATE_WORKFLOW.md
 dist/           Build output (gitignored)
 ```
 
