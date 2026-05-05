@@ -32,6 +32,7 @@ function makeBatchDirName(): string {
 export function useConvert() {
   const [state, setState] = useState<ConvertState>(INITIAL);
   const jobIdRef = useRef<string | null>(null);
+  const stopRequestedRef = useRef(false);
 
   useEffect(() => {
     // Keep a subscription open just to satisfy the API; actual progress is
@@ -41,6 +42,7 @@ export function useConvert() {
   }, []);
 
   const run = useCallback(async (allInputs: string[], settings: Settings) => {
+    stopRequestedRef.current = false;
     const inputs = allInputs.filter((p) => p.trim().length > 0);
     if (inputs.length === 0) {
       setState((s) => ({
@@ -61,6 +63,7 @@ export function useConvert() {
     const errors: string[] = [];
 
     for (let i = 0; i < inputs.length; i++) {
+      if (stopRequestedRef.current) break;
       const imagePath = inputs[i];
       const jobId = `${batchId}_${i}`;
       jobIdRef.current = jobId;
@@ -104,6 +107,7 @@ export function useConvert() {
         duration: settings.duration,
         audioPath,
         audioVolume: settings.music.volume,
+        encoder: settings.encoder,
       };
 
       // Subscribe to this specific job's progress
@@ -116,6 +120,10 @@ export function useConvert() {
       const result = await window.electronAPI.convert(jobId, options);
       progressUnsub();
 
+      if (stopRequestedRef.current) {
+        break;
+      }
+
       if (result.ok && result.outputPath) {
         produced.push(result.outputPath);
       } else {
@@ -125,6 +133,19 @@ export function useConvert() {
     }
 
     jobIdRef.current = null;
+
+    if (stopRequestedRef.current) {
+      setState({
+        status: "idle",
+        progress: 0,
+        currentLabel: "",
+        outputPaths: produced,
+        errorMessage: produced.length > 0
+          ? "Conversion stopped. Partial output was saved."
+          : "Conversion stopped.",
+      });
+      return;
+    }
 
     if (produced.length === 0) {
       setState({
@@ -142,6 +163,13 @@ export function useConvert() {
   }, []);
 
   const reset = useCallback(() => setState(INITIAL), []);
+  const stop = useCallback(async () => {
+    stopRequestedRef.current = true;
+    const jobId = jobIdRef.current;
+    if (jobId) {
+      await window.electronAPI.cancelConvert(jobId);
+    }
+  }, []);
 
-  return { ...state, run, reset };
+  return { ...state, run, reset, stop };
 }

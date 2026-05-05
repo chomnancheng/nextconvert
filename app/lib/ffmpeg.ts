@@ -10,6 +10,7 @@
 import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
+import type { ChildProcess } from "child_process";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 let ffmpegBin: string = "";
 
@@ -36,6 +37,7 @@ console.log("[ffmpeg] binary:", ffmpegBin);
 // ---------------------------------------------------------------------------
 
 export type SizePreset = "reel" | "story" | "square";
+export type EncoderMode = "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
 
 const PRESETS: Record<SizePreset, [number, number]> = {
   reel:   [1080, 1920],
@@ -62,6 +64,8 @@ export interface ConvertOptions {
   audioPath?: string;
   /** Audio volume 0–100, default 80 */
   audioVolume?: number;
+  /** Encoder profile selected by user. */
+  encoder?: EncoderMode;
 }
 
 // Legacy shape used by IPC — kept for backwards compat with useConvert
@@ -77,6 +81,7 @@ export interface ConvertOptionsLegacy {
   duration?: number;
   audioPath?: string;
   audioVolume?: number;
+  encoder?: EncoderMode;
 }
 
 export interface ConvertResult {
@@ -86,6 +91,8 @@ export interface ConvertResult {
 }
 
 export type ProgressCallback = (percent: number) => void;
+const activeJobs = new Map<string, ChildProcess>();
+const cancelledJobs = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,12 +139,14 @@ function resolveOutputPath(
 }
 
 function runFfmpeg(
+  jobId: string,
   args: string[],
   totalSeconds: number,
   onProgress: ProgressCallback,
 ): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve) => {
     const proc = spawn(ffmpegBin, args, { stdio: ["ignore", "ignore", "pipe"] });
+    activeJobs.set(jobId, proc);
     const chunks: string[] = [];
 
     proc.stderr.setEncoding("utf8");
@@ -153,10 +162,25 @@ function runFfmpeg(
     });
 
     proc.on("close", (code) => {
+      activeJobs.delete(jobId);
+      const wasCancelled = cancelledJobs.has(jobId);
+      if (wasCancelled) cancelledJobs.delete(jobId);
       onProgress(100);
-      resolve({ code: code ?? 1, stderr: chunks.join("") });
+      resolve({
+        code: code ?? 1,
+        stderr: `${chunks.join("")}${wasCancelled ? "\n__CANCELLED__" : ""}`,
+      });
     });
   });
+}
+
+function resolveVideoEncoder(mode: EncoderMode): string {
+  if (mode === "cpu") return "libx264";
+  if (mode === "nvidia") return "h264_nvenc";
+  if (mode === "intel") return "h264_qsv";
+  if (mode === "amd") return process.platform === "win32" ? "h264_amf" : "h264_videotoolbox";
+  if (mode === "apple") return "h264_videotoolbox";
+  return "libx264";
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +209,7 @@ function runFfmpeg(
 export async function convertOne(
   options: ConvertOptions,
   onProgress: ProgressCallback = () => {},
+  jobId = "single",
 ): Promise<ConvertResult> {
   const {
     input,
@@ -194,6 +219,7 @@ export async function convertOne(
     audioPath,
     audioVolume = 80,
     batchDir = "converted",
+    encoder = "auto",
   } = options;
 
   if (!input?.trim()) {
@@ -204,6 +230,7 @@ export async function convertOne(
   const crf = qualityToCrf(quality);
   const outputPath = resolveOutputPath(input, options.outputPath, batchDir);
   const vol = Math.max(0, Math.min(100, audioVolume)) / 100;
+  const videoEncoder = resolveVideoEncoder(encoder);
 
   const args: string[] = [
     // Video input — loop the single image
@@ -218,7 +245,7 @@ export async function convertOne(
 
   args.push(
     "-vf", scaleFilter(w, h),
-    "-c:v", "libx264",
+    "-c:v", videoEncoder,
     "-crf", String(crf),
     "-preset", "fast",
     "-pix_fmt", "yuv420p",
@@ -239,9 +266,12 @@ export async function convertOne(
 
   args.push("-movflags", "+faststart", "-y", outputPath);
 
-  const { code, stderr } = await runFfmpeg(args, duration, onProgress);
+  const { code, stderr } = await runFfmpeg(jobId, args, duration, onProgress);
 
   if (code !== 0) {
+    if (stderr.includes("__CANCELLED__")) {
+      return { ok: false, error: "Conversion canceled by user." };
+    }
     return { ok: false, error: `FFmpeg exited with code ${code}.\n${stderr.slice(-1500)}` };
   }
 
@@ -256,6 +286,7 @@ export async function convertOne(
 export async function convert(
   raw: ConvertOptionsLegacy,
   onProgress: ProgressCallback = () => {},
+  jobId = "single",
 ): Promise<ConvertResult> {
   // Normalise: accept either `input` (new) or `inputs[0]` (legacy)
   const input = raw.input ?? raw.inputs?.[0] ?? "";
@@ -271,7 +302,21 @@ export async function convert(
       duration,
       audioPath: raw.audioPath,
       audioVolume: raw.audioVolume,
+      encoder: raw.encoder,
     },
     onProgress,
+    jobId,
   );
+}
+
+export function cancelConvert(jobId: string): boolean {
+  const proc = activeJobs.get(jobId);
+  if (!proc) return false;
+  cancelledJobs.add(jobId);
+  try {
+    proc.kill("SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
 }

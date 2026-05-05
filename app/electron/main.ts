@@ -5,7 +5,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import https from "https";
 import os from "os";
-import { convert } from "../lib/ffmpeg";
+import { convert, cancelConvert } from "../lib/ffmpeg";
 import type { ConvertOptionsLegacy } from "../lib/ffmpeg";
 import { initStore, storeGet, storeSet } from "../lib/store";
 
@@ -30,6 +30,10 @@ interface ReleaseAsset {
 interface GithubRelease {
   tag_name: string;
   assets: ReleaseAsset[];
+}
+
+interface GithubTag {
+  name: string;
 }
 
 interface UpdateCheckResult {
@@ -57,12 +61,12 @@ function isVersionNewer(latest: string, current: string): boolean {
   return false;
 }
 
-function fetchLatestRelease(): Promise<GithubRelease> {
+function fetchJson(pathname: string): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.get(
       {
         hostname: "api.github.com",
-        path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+        path: pathname,
         headers: {
           "User-Agent": "nextconvert-updater",
           Accept: "application/vnd.github+json",
@@ -72,21 +76,43 @@ function fetchLatestRelease(): Promise<GithubRelease> {
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () => {
-          const body = Buffer.concat(chunks).toString("utf8");
-          if (!res.statusCode || res.statusCode >= 400) {
-            reject(new Error(`GitHub API failed (${res.statusCode ?? 0}): ${body.slice(0, 200)}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(body) as GithubRelease);
-          } catch {
-            reject(new Error("Failed to parse GitHub release response."));
-          }
+          resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") });
         });
       },
     );
     req.on("error", reject);
   });
+}
+
+async function fetchLatestRelease(): Promise<GithubRelease> {
+  const latestRelease = await fetchJson(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`);
+  if (latestRelease.statusCode === 200) {
+    try {
+      return JSON.parse(latestRelease.body) as GithubRelease;
+    } catch {
+      throw new Error("Failed to parse GitHub latest release response.");
+    }
+  }
+
+  // If there is no published release yet, GitHub returns 404 for /releases/latest.
+  if (latestRelease.statusCode === 404) {
+    const tags = await fetchJson(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/tags?per_page=1`);
+    if (tags.statusCode !== 200) {
+      throw new Error(`GitHub API failed (${tags.statusCode}): ${tags.body.slice(0, 200)}`);
+    }
+    let parsed: GithubTag[] = [];
+    try {
+      parsed = JSON.parse(tags.body) as GithubTag[];
+    } catch {
+      throw new Error("Failed to parse GitHub tags response.");
+    }
+    if (parsed.length === 0 || !parsed[0].name) {
+      throw new Error("No releases or tags found in repository.");
+    }
+    return { tag_name: parsed[0].name, assets: [] };
+  }
+
+  throw new Error(`GitHub API failed (${latestRelease.statusCode}): ${latestRelease.body.slice(0, 200)}`);
 }
 
 function chooseAsset(assets: ReleaseAsset[]): ReleaseAsset | null {
@@ -274,7 +300,12 @@ app.whenReady().then(() => {
       musicFolderPath: storeGet<string>("musicFolderPath", ""),
       musicEnabled: storeGet<boolean>("musicEnabled", false),
       outputDir: storeGet<string>("outputDir", ""),
+      gpuEncoder: storeGet<string>("gpuEncoder", "auto"),
     };
+  });
+
+  ipcMain.handle("settings:saveGpuEncoder", (_event, encoder: string) => {
+    storeSet("gpuEncoder", encoder);
   });
 
   // ── FFmpeg ────────────────────────────────────────────────────────────────
@@ -282,7 +313,25 @@ app.whenReady().then(() => {
   ipcMain.handle("convert:run", async (_event, jobId: string, options: ConvertOptionsLegacy) => {
     return convert(options, (percent) => {
       win.webContents.send("convert:progress", { jobId, percent });
-    });
+    }, jobId);
+  });
+
+  ipcMain.handle("convert:cancel", (_event, jobId: string) => {
+    return { ok: cancelConvert(jobId) };
+  });
+
+  ipcMain.handle("encoder:list", () => {
+    const options = [{ value: "auto", label: "Auto (recommended)" }, { value: "cpu", label: "CPU (libx264)" }];
+    if (process.platform === "win32") {
+      options.push(
+        { value: "nvidia", label: "NVIDIA NVENC" },
+        { value: "intel", label: "Intel Quick Sync (QSV)" },
+        { value: "amd", label: "AMD AMF" },
+      );
+    } else if (process.platform === "darwin") {
+      options.push({ value: "apple", label: "Apple VideoToolbox" });
+    }
+    return options;
   });
 
   // ── Shell ─────────────────────────────────────────────────────────────────
@@ -318,6 +367,12 @@ app.whenReady().then(() => {
     try {
       const latest = await fetchLatestRelease();
       const latestVersion = latest.tag_name.replace(/^v/i, "");
+      if (!latest.assets || latest.assets.length === 0) {
+        return {
+          ok: false,
+          error: "Latest tag has no published release assets yet. Publish a GitHub Release first.",
+        };
+      }
       const asset = chooseAsset(latest.assets);
       if (!asset) {
         return { ok: false, error: `No compatible installer found for ${process.platform}/${process.arch}.` };

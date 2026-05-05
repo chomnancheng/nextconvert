@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import type {
   Settings,
   SizePreset,
+  EncoderMode,
+  EncoderOption,
   WatermarkPosition,
   MusicSettings,
   WatermarkSettings,
@@ -36,6 +38,8 @@ interface SettingsPanelProps {
   onMusic: (patch: Partial<MusicSettings>) => void;
   onMetadata: (patch: Partial<MetadataSettings>) => void;
   onOutputDir: (v: string) => void;
+  onEncoder: (v: EncoderMode) => void;
+  encoderOptions: EncoderOption[];
   disabled?: boolean;
 }
 
@@ -83,6 +87,8 @@ export default function SettingsPanel({
   onMusic,
   onMetadata,
   onOutputDir,
+  onEncoder,
+  encoderOptions,
   disabled = false,
 }: SettingsPanelProps) {
   const { watermark, music, metadata } = settings;
@@ -143,6 +149,26 @@ export default function SettingsPanel({
                 ))}
               </SelectContent>
             </Select>
+          </Field>
+
+          <Field label="Encoder / GPU" htmlFor="s-encoder">
+            <Select
+              value={settings.encoder}
+              onValueChange={(v) => onEncoder(v as EncoderMode)}
+              disabled={disabled}
+            >
+              <SelectTrigger id="s-encoder" className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {encoderOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Use CPU for maximum compatibility if GPU encoding fails.
+            </p>
           </Field>
 
           <Field label="Output base folder">

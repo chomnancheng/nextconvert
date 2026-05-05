@@ -13,6 +13,11 @@ export const PRESET_LABELS: Record<SizePreset, string> = {
 };
 
 export type WatermarkPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type EncoderMode = "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
+export interface EncoderOption {
+  value: EncoderMode;
+  label: string;
+}
 
 export interface WatermarkSettings {
   enabled: boolean;
@@ -46,6 +51,7 @@ export interface Settings {
   metadata: MetadataSettings;
   /** Empty = auto (converted-datetime/ next to first input). Set = user-chosen fixed dir. */
   outputDir: string;
+  encoder: EncoderMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   metadata: { title: "", author: "", description: "" },
   outputDir: "",
+  encoder: "auto",
 };
 
 // ---------------------------------------------------------------------------
@@ -82,6 +89,10 @@ export const DEFAULT_SETTINGS: Settings = {
 export function useSettings() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
+  const [encoders, setEncoders] = useState<EncoderOption[]>([
+    { value: "auto", label: "Auto (recommended)" },
+    { value: "cpu", label: "CPU (libx264)" },
+  ]);
 
   // Restore persisted settings once on mount
   useEffect(() => {
@@ -92,6 +103,9 @@ export function useSettings() {
         // Restore output dir
         if (saved.outputDir) {
           next = { ...next, outputDir: saved.outputDir };
+        }
+        if (saved.gpuEncoder) {
+          next = { ...next, encoder: saved.gpuEncoder as EncoderMode };
         }
 
         // Restore music folder + enabled state
@@ -118,6 +132,11 @@ export function useSettings() {
         return next;
       });
       setLoaded(true);
+    });
+    window.electronAPI.listEncoders().then((items) => {
+      if (items.length > 0) {
+        setEncoders(items.map((x) => ({ value: x.value as EncoderMode, label: x.label })));
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -151,11 +170,17 @@ export function useSettings() {
     setSettings((s) => ({ ...s, outputDir }));
   }, []);
 
+  const setEncoder = useCallback((encoder: EncoderMode) => {
+    window.electronAPI.saveGpuEncoder(encoder);
+    setSettings((s) => ({ ...s, encoder }));
+  }, []);
+
   const reset = useCallback(() => setSettings(DEFAULT_SETTINGS), []);
 
   return {
     settings,
     loaded,
+    encoders,
     setPreset,
     setDuration,
     setQuality,
@@ -163,6 +188,7 @@ export function useSettings() {
     setMusic,
     setMetadata,
     setOutputDir,
+    setEncoder,
     reset,
   };
 }

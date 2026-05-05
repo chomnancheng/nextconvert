@@ -15,6 +15,12 @@ export interface SavedSettings {
   musicFolderPath: string;
   musicEnabled: boolean;
   outputDir: string;
+  gpuEncoder: string;
+}
+
+export interface EncoderOption {
+  value: string;
+  label: string;
 }
 
 export interface UpdateCheckResult {
@@ -49,9 +55,12 @@ export interface ElectronAPI {
   saveMusicEnabled: (enabled: boolean) => Promise<void>;
   /** Persist output directory. */
   saveOutputDir: (dir: string) => Promise<void>;
+  saveGpuEncoder: (encoder: string) => Promise<void>;
   /** Load all persisted settings at startup. */
   getSavedSettings: () => Promise<SavedSettings>;
   pickMusicTrack: (folderPath: string, minDuration: number) => Promise<string | null>;
+  cancelConvert: (jobId: string) => Promise<{ ok: boolean }>;
+  listEncoders: () => Promise<EncoderOption[]>;
   checkForUpdates: () => Promise<UpdateCheckResult>;
   downloadLatestUpdate: () => Promise<UpdateDownloadResult>;
 }
@@ -89,9 +98,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSavedMusicFolder: () => ipcRenderer.invoke("music:getSavedFolder"),
   saveMusicEnabled: (enabled: boolean) => ipcRenderer.invoke("music:saveEnabled", enabled),
   saveOutputDir: (dir: string) => ipcRenderer.invoke("settings:saveOutputDir", dir),
+  saveGpuEncoder: (encoder: string) => ipcRenderer.invoke("settings:saveGpuEncoder", encoder),
   getSavedSettings: () => ipcRenderer.invoke("settings:getSaved"),
   pickMusicTrack: (folderPath: string, minDuration: number) =>
     ipcRenderer.invoke("music:pickTrack", folderPath, minDuration),
+  cancelConvert: (jobId: string) => ipcRenderer.invoke("convert:cancel", jobId),
+  listEncoders: () => ipcRenderer.invoke("encoder:list"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
   downloadLatestUpdate: () => ipcRenderer.invoke("update:downloadLatest"),
 } satisfies ElectronAPI);

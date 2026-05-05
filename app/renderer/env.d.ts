@@ -14,6 +14,7 @@ interface ConvertOptions {
   singleDuration?: number;
   audioPath?: string;
   audioVolume?: number;
+  encoder?: "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
 }
 
 interface ConvertResult {
@@ -36,6 +37,12 @@ interface SavedSettings {
   musicFolderPath: string;
   musicEnabled: boolean;
   outputDir: string;
+  gpuEncoder: string;
+}
+
+interface EncoderOption {
+  value: string;
+  label: string;
 }
 
 interface UpdateCheckResult {
@@ -66,8 +73,11 @@ interface Window {
     getSavedMusicFolder: () => Promise<MusicSavedFolder>;
     saveMusicEnabled: (enabled: boolean) => Promise<void>;
     saveOutputDir: (dir: string) => Promise<void>;
+    saveGpuEncoder: (encoder: string) => Promise<void>;
     getSavedSettings: () => Promise<SavedSettings>;
     pickMusicTrack: (folderPath: string, minDuration: number) => Promise<string | null>;
+    cancelConvert: (jobId: string) => Promise<{ ok: boolean }>;
+    listEncoders: () => Promise<EncoderOption[]>;
     checkForUpdates: () => Promise<UpdateCheckResult>;
     downloadLatestUpdate: () => Promise<UpdateDownloadResult>;
   };

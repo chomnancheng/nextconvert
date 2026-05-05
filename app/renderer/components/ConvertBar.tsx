@@ -10,6 +10,7 @@ interface ConvertBarProps {
   outputPaths: string[];
   errorMessage: string | null;
   onConvert: () => void;
+  onStop: () => void;
   onReset: () => void;
 }
 
@@ -21,6 +22,7 @@ export default function ConvertBar({
   outputPaths,
   errorMessage,
   onConvert,
+  onStop,
   onReset,
 }: ConvertBarProps) {
   const isRunning = status === "running";
@@ -52,6 +54,16 @@ export default function ConvertBar({
             : <Clapperboard className="h-4 w-4" />}
           {isRunning ? "Converting…" : "Convert"}
         </button>
+
+        {isRunning && (
+          <button
+            type="button"
+            onClick={onStop}
+            className="inline-flex items-center gap-2 rounded-lg border border-destructive/60 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/10"
+          >
+            Stop
+          </button>
+        )}
 
         {fileCount > 0 && isIdle && (
           <span className="text-xs text-muted-foreground">

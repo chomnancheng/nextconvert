@@ -8,8 +8,19 @@ import { useSettings } from "@/renderer/hooks/useSettings";
 
 export default function ImageToReels() {
   const { files, addPaths, removeFile, clearFiles } = useImageFiles();
-  const { status, progress, currentLabel, outputPaths, errorMessage, run, reset } = useConvert();
-  const { settings, setPreset, setDuration, setQuality, setWatermark, setMusic, setMetadata, setOutputDir } = useSettings();
+  const { status, progress, currentLabel, outputPaths, errorMessage, run, reset, stop } = useConvert();
+  const {
+    settings,
+    encoders,
+    setPreset,
+    setDuration,
+    setQuality,
+    setWatermark,
+    setMusic,
+    setMetadata,
+    setOutputDir,
+    setEncoder,
+  } = useSettings();
 
   const isLocked = status === "running";
 
@@ -42,6 +53,7 @@ export default function ImageToReels() {
             errorMessage={errorMessage}
             onConvert={() => run(files.map((f) => f.path), settings)}
             onReset={reset}
+            onStop={stop}
           />
         </div>
       </div>
@@ -57,6 +69,8 @@ export default function ImageToReels() {
           onMusic={setMusic}
           onMetadata={setMetadata}
           onOutputDir={setOutputDir}
+          onEncoder={setEncoder}
+          encoderOptions={encoders}
           disabled={isLocked}
         />
       </div>
