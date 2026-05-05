@@ -3,6 +3,8 @@ import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import https from "https";
+import os from "os";
 import { convert } from "../lib/ffmpeg";
 import type { ConvertOptionsLegacy } from "../lib/ffmpeg";
 import { initStore, storeGet, storeSet } from "../lib/store";
@@ -17,6 +19,132 @@ const isDev = process.env.NODE_ENV === "development";
 
 const AUDIO_EXTS = new Set([".mp3", ".mp4", ".m4a", ".aac"]);
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const GITHUB_OWNER = "chomnancheng";
+const GITHUB_REPO = "nextconvert";
+
+interface ReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
+
+interface GithubRelease {
+  tag_name: string;
+  assets: ReleaseAsset[];
+}
+
+interface UpdateCheckResult {
+  ok: boolean;
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion?: string;
+  error?: string;
+}
+
+function parseVersion(version: string): number[] {
+  return version.replace(/^v/i, "").split(".").map((x) => parseInt(x, 10) || 0);
+}
+
+function isVersionNewer(latest: string, current: string): boolean {
+  const a = parseVersion(latest);
+  const b = parseVersion(current);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return false;
+}
+
+function fetchLatestRelease(): Promise<GithubRelease> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      {
+        hostname: "api.github.com",
+        path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+        headers: {
+          "User-Agent": "nextconvert-updater",
+          Accept: "application/vnd.github+json",
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8");
+          if (!res.statusCode || res.statusCode >= 400) {
+            reject(new Error(`GitHub API failed (${res.statusCode ?? 0}): ${body.slice(0, 200)}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(body) as GithubRelease);
+          } catch {
+            reject(new Error("Failed to parse GitHub release response."));
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+  });
+}
+
+function chooseAsset(assets: ReleaseAsset[]): ReleaseAsset | null {
+  const arch = process.arch;
+  if (process.platform === "win32") {
+    return assets.find((a) => a.name.endsWith(".exe") && !a.name.endsWith(".blockmap")) ?? null;
+  }
+  if (process.platform === "darwin") {
+    if (arch === "arm64") {
+      return assets.find((a) => a.name.includes("arm64") && a.name.endsWith(".dmg")) ?? null;
+    }
+    return (
+      assets.find((a) => !a.name.includes("arm64") && a.name.endsWith(".dmg")) ??
+      assets.find((a) => a.name.endsWith(".dmg")) ??
+      null
+    );
+  }
+  return null;
+}
+
+function downloadFile(url: string, destinationPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(destinationPath);
+    const req = https.get(url, (res) => {
+      if (
+        res.statusCode &&
+        [301, 302, 307, 308].includes(res.statusCode) &&
+        res.headers.location
+      ) {
+        file.close();
+        fs.unlink(destinationPath, () => {});
+        downloadFile(res.headers.location!, destinationPath).then(resolve).catch(reject);
+        return;
+      }
+      if (!res.statusCode || res.statusCode >= 400) {
+        file.close();
+        fs.unlink(destinationPath, () => {});
+        reject(new Error(`Download failed with status ${res.statusCode ?? 0}.`));
+        return;
+      }
+      res.pipe(file);
+      file.on("finish", () => {
+        file.close();
+        resolve();
+      });
+    });
+    req.on("error", (err) => {
+      file.close();
+      fs.unlink(destinationPath, () => {});
+      reject(err);
+    });
+    file.on("error", (err) => {
+      file.close();
+      fs.unlink(destinationPath, () => {});
+      reject(err);
+    });
+  });
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,6 +289,52 @@ app.whenReady().then(() => {
 
   ipcMain.handle("shell:showItem", (_event, filePath: string) => {
     shell.showItemInFolder(filePath);
+  });
+
+  // ── Updates ───────────────────────────────────────────────────────────────
+
+  ipcMain.handle("update:check", async (): Promise<UpdateCheckResult> => {
+    try {
+      const currentVersion = app.getVersion();
+      const latest = await fetchLatestRelease();
+      const latestVersion = latest.tag_name.replace(/^v/i, "");
+      return {
+        ok: true,
+        hasUpdate: isVersionNewer(latestVersion, currentVersion),
+        currentVersion,
+        latestVersion,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        hasUpdate: false,
+        currentVersion: app.getVersion(),
+        error: error instanceof Error ? error.message : "Unknown update check error.",
+      };
+    }
+  });
+
+  ipcMain.handle("update:downloadLatest", async () => {
+    try {
+      const latest = await fetchLatestRelease();
+      const latestVersion = latest.tag_name.replace(/^v/i, "");
+      const asset = chooseAsset(latest.assets);
+      if (!asset) {
+        return { ok: false, error: `No compatible installer found for ${process.platform}/${process.arch}.` };
+      }
+      const downloadsDir = path.join(os.homedir(), "Downloads", "NextConvert-updates");
+      fs.mkdirSync(downloadsDir, { recursive: true });
+      const destination = path.join(downloadsDir, asset.name);
+      await downloadFile(asset.browser_download_url, destination);
+      // Open installer/dmg for the user to continue the update flow.
+      await shell.openPath(destination);
+      return { ok: true, filePath: destination, latestVersion };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to download update.",
+      };
+    }
   });
 
   app.on("activate", () => {

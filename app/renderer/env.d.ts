@@ -38,6 +38,21 @@ interface SavedSettings {
   outputDir: string;
 }
 
+interface UpdateCheckResult {
+  ok: boolean;
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion?: string;
+  error?: string;
+}
+
+interface UpdateDownloadResult {
+  ok: boolean;
+  filePath?: string;
+  latestVersion?: string;
+  error?: string;
+}
+
 interface Window {
   electronAPI: {
     openFiles: () => Promise<string[]>;
@@ -53,5 +68,7 @@ interface Window {
     saveOutputDir: (dir: string) => Promise<void>;
     getSavedSettings: () => Promise<SavedSettings>;
     pickMusicTrack: (folderPath: string, minDuration: number) => Promise<string | null>;
+    checkForUpdates: () => Promise<UpdateCheckResult>;
+    downloadLatestUpdate: () => Promise<UpdateDownloadResult>;
   };
 }

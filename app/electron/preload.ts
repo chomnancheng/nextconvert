@@ -17,6 +17,21 @@ export interface SavedSettings {
   outputDir: string;
 }
 
+export interface UpdateCheckResult {
+  ok: boolean;
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion?: string;
+  error?: string;
+}
+
+export interface UpdateDownloadResult {
+  ok: boolean;
+  filePath?: string;
+  latestVersion?: string;
+  error?: string;
+}
+
 export interface ElectronAPI {
   openFiles: () => Promise<string[]>;
   openFolder: () => Promise<string[]>;
@@ -37,6 +52,8 @@ export interface ElectronAPI {
   /** Load all persisted settings at startup. */
   getSavedSettings: () => Promise<SavedSettings>;
   pickMusicTrack: (folderPath: string, minDuration: number) => Promise<string | null>;
+  checkForUpdates: () => Promise<UpdateCheckResult>;
+  downloadLatestUpdate: () => Promise<UpdateDownloadResult>;
 }
 
 contextBridge.exposeInMainWorld("electronAPI", {
@@ -75,4 +92,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSavedSettings: () => ipcRenderer.invoke("settings:getSaved"),
   pickMusicTrack: (folderPath: string, minDuration: number) =>
     ipcRenderer.invoke("music:pickTrack", folderPath, minDuration),
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
+  downloadLatestUpdate: () => ipcRenderer.invoke("update:downloadLatest"),
 } satisfies ElectronAPI);
