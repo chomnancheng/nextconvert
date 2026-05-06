@@ -1,6 +1,6 @@
 {
   "name": "nextconvert",
-  "version": "0.1.9",
+  "version": "0.1.11",
   "description": "Image to Reels converter desktop app",
   "author": "NextConvert Team",
   "main": "dist/electron/electron/main.js",
