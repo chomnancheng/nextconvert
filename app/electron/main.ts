@@ -130,6 +130,31 @@ function fetchJson(pathname: string): Promise<{ statusCode: number; body: string
   });
 }
 
+async function fetchLatestTagFromRedirect(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      {
+        hostname: "github.com",
+        path: `/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+        headers: {
+          "User-Agent": "nextconvert-updater",
+          Accept: "text/html",
+        },
+      },
+      (res) => {
+        const location = res.headers.location ?? "";
+        const match = location.match(/\/tag\/([^/?#]+)/);
+        if (match?.[1]) {
+          resolve(decodeURIComponent(match[1]));
+          return;
+        }
+        reject(new Error("Could not resolve latest release tag from redirect."));
+      },
+    );
+    req.on("error", reject);
+  });
+}
+
 async function fetchLatestRelease(): Promise<GithubRelease> {
   const latestRelease = await fetchJson(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`);
   if (latestRelease.statusCode === 200) {
@@ -141,21 +166,33 @@ async function fetchLatestRelease(): Promise<GithubRelease> {
   }
 
   // If there is no published release yet, GitHub returns 404 for /releases/latest.
+  // If unauthenticated API access is blocked/rate-limited, it can also fail with 403.
+  let fallbackTag: string | null = null;
   if (latestRelease.statusCode === 404) {
     const tags = await fetchJson(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/tags?per_page=1`);
-    if (tags.statusCode !== 200) {
-      throw new Error(`GitHub API failed (${tags.statusCode}): ${tags.body.slice(0, 200)}`);
+    if (tags.statusCode === 200) {
+      let parsed: GithubTag[] = [];
+      try {
+        parsed = JSON.parse(tags.body) as GithubTag[];
+      } catch {
+        throw new Error("Failed to parse GitHub tags response.");
+      }
+      if (parsed.length > 0 && parsed[0].name) {
+        fallbackTag = parsed[0].name;
+      }
     }
-    let parsed: GithubTag[] = [];
+  }
+
+  if (!fallbackTag) {
     try {
-      parsed = JSON.parse(tags.body) as GithubTag[];
+      fallbackTag = await fetchLatestTagFromRedirect();
     } catch {
-      throw new Error("Failed to parse GitHub tags response.");
+      fallbackTag = null;
     }
-    if (parsed.length === 0 || !parsed[0].name) {
-      throw new Error("No releases or tags found in repository.");
-    }
-    return { tag_name: parsed[0].name, assets: [] };
+  }
+
+  if (fallbackTag) {
+    return { tag_name: fallbackTag, assets: [] };
   }
 
   throw new Error(`GitHub API failed (${latestRelease.statusCode}): ${latestRelease.body.slice(0, 200)}`);
