@@ -36,14 +36,28 @@ console.log("[ffmpeg] binary:", ffmpegBin);
 // Public types
 // ---------------------------------------------------------------------------
 
-export type SizePreset = "reel" | "story" | "square";
+export type SizePreset = "reel" | "story" | "square" | "custom";
 export type EncoderMode = "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
 
-const PRESETS: Record<SizePreset, [number, number]> = {
+const PRESETS: Record<Exclude<SizePreset, "custom">, [number, number]> = {
   reel:   [1080, 1920],
   story:  [1080, 1920],
   square: [1080, 1080],
 };
+
+function resolvePresetSize(
+  preset: SizePreset | undefined,
+  customWidth: number,
+  customHeight: number,
+): [number, number] {
+  if (preset === "custom") {
+    return [Math.max(64, Math.floor(customWidth)), Math.max(64, Math.floor(customHeight))];
+  }
+  if (preset === "reel" || preset === "story" || preset === "square") {
+    return PRESETS[preset];
+  }
+  return PRESETS.reel;
+}
 
 export interface ConvertOptions {
   /** Single input image path */
@@ -56,6 +70,8 @@ export interface ConvertOptions {
    */
   batchDir?: string;
   preset?: SizePreset;
+  customWidth?: number;
+  customHeight?: number;
   /** 0–100, default 80 */
   quality?: number;
   /** Total video duration in seconds, default 59 */
@@ -75,6 +91,8 @@ export interface ConvertOptionsLegacy {
   outputPath?: string;
   batchDir?: string;
   preset?: SizePreset;
+  customWidth?: number;
+  customHeight?: number;
   quality?: number;
   imageDuration?: number;
   singleDuration?: number;
@@ -214,6 +232,8 @@ export async function convertOne(
   const {
     input,
     preset = "reel",
+    customWidth = 1080,
+    customHeight = 1920,
     quality = 80,
     duration = 59,
     audioPath,
@@ -226,7 +246,7 @@ export async function convertOne(
     return { ok: false, error: "No input file path provided." };
   }
 
-  const [w, h] = PRESETS[preset];
+  const [w, h] = resolvePresetSize(preset, customWidth, customHeight);
   const crf = qualityToCrf(quality);
   const outputPath = resolveOutputPath(input, options.outputPath, batchDir);
   const vol = Math.max(0, Math.min(100, audioVolume)) / 100;
@@ -298,6 +318,8 @@ export async function convert(
       outputPath: raw.outputPath,
       batchDir: raw.batchDir,
       preset: raw.preset,
+      customWidth: raw.customWidth,
+      customHeight: raw.customHeight,
       quality: raw.quality,
       duration,
       audioPath: raw.audioPath,

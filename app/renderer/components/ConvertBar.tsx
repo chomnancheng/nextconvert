@@ -43,10 +43,10 @@ export default function ConvertBar({
           disabled={isRunning || fileCount === 0}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold",
-            "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             isRunning || fileCount === 0
-              ? "bg-primary/50 text-primary-foreground cursor-not-allowed"
-              : "bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer",
+              ? "cursor-not-allowed border-border bg-muted text-muted-foreground opacity-70"
+              : "cursor-pointer border-primary bg-primary text-primary-foreground hover:bg-primary/90",
           )}
         >
           {isRunning

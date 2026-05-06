@@ -38,18 +38,20 @@ function fromFile(file: File): ImageFile {
 }
 
 /** Build an ImageFile from an absolute path (IPC dialog result). */
-function fromPath(absPath: string): ImageFile {
+async function fromPath(absPath: string): Promise<ImageFile> {
   const name = absPath.split(/[\\/]/).pop() ?? absPath;
-  // Encode each segment so spaces / special chars are safe in the URL
-  const encoded = absPath
-    .split(/[\\/]/)
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
+  let previewUrl = "";
+  try {
+    previewUrl = await window.electronAPI.imageToDataUrl(absPath);
+  } catch {
+    // Fallback for environments that cannot use IPC preview loading.
+    previewUrl = `file://${encodeURI(absPath)}`;
+  }
   return {
     id: makeId(),
     name,
     path: absPath,
-    previewUrl: `file:///${encoded}`,
+    previewUrl,
   };
 }
 
@@ -87,13 +89,18 @@ export function useImageFiles() {
     const filtered = paths.filter((p) => isImageByExt(p));
     if (filtered.length === 0) return;
 
-    setFiles((prev) => {
-      const existingPaths = new Set(prev.map((f) => f.path));
-      const next = filtered
-        .filter((p) => !existingPaths.has(p))
-        .map(fromPath);
-      return [...prev, ...next];
-    });
+    void (async () => {
+      const uniqueNewPaths = Array.from(new Set(filtered));
+      if (uniqueNewPaths.length === 0) return;
+
+      const next = await Promise.all(uniqueNewPaths.map((p) => fromPath(p)));
+
+      setFiles((prev) => {
+        const existing = new Set(prev.map((f) => f.path));
+        const safeNext = next.filter((f) => !existing.has(f.path));
+        return [...prev, ...safeNext];
+      });
+    })();
   }, []);
 
   const removeFile = useCallback((id: string) => {

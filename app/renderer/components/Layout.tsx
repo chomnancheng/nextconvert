@@ -1,7 +1,7 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/renderer/components/ui/tabs";
-import { DownloadCloud, Film, Loader2, Moon, Sun } from "lucide-react";
+import { DownloadCloud, Film, Loader2, Maximize2, Minimize2, Minus, Moon, Sun, X } from "lucide-react";
 import ImageToReels from "@/renderer/pages/ImageToReels";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 
 export default function Layout() {
   const [isChecking, setIsChecking] = useState(true);
@@ -9,6 +9,7 @@ export default function Layout() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [hasUpdate, setHasUpdate] = useState(false);
   const [currentVersion, setCurrentVersion] = useState<string>("");
+  const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("themeMode");
@@ -41,6 +42,12 @@ export default function Layout() {
     void check();
   }, []);
 
+  useEffect(() => {
+    window.electronAPI.isWindowMaximized().then(setIsMaximized).catch(() => {
+      setIsMaximized(false);
+    });
+  }, []);
+
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
@@ -63,34 +70,29 @@ export default function Layout() {
     setIsChecking(false);
   };
 
+  const handleToggleMaximize = async () => {
+    const next = await window.electronAPI.toggleMaximizeWindow();
+    setIsMaximized(next);
+  };
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
-        <div className="flex items-center gap-2">
+      <header
+        className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-4"
+        style={{ WebkitAppRegion: "drag" } as CSSProperties}
+      >
+        <div className="flex min-w-0 items-center gap-3">
           <Film className="h-5 w-5 text-primary" />
           <span className="text-base font-semibold tracking-tight">NextConvert</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 shrink-0 items-center gap-3" style={{ WebkitAppRegion: "no-drag" } as CSSProperties}>
           {currentVersion && (
-            <span className="text-xs text-muted-foreground">Current version: {currentVersion}</span>
+            <span className="hidden text-xs text-muted-foreground lg:inline">Current version: {currentVersion}</span>
           )}
           {updateMessage && (
-            <span className="max-w-[420px] truncate text-xs text-muted-foreground">{updateMessage}</span>
+            <span className="hidden max-w-[220px] truncate text-xs text-muted-foreground xl:inline">{updateMessage}</span>
           )}
-          <button
-            type="button"
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border hover:bg-accent"
-            onClick={toggleTheme}
-          >
-            {theme === "dark" ? (
-              <Sun className="h-4 w-4 text-foreground" aria-hidden />
-            ) : (
-              <Moon className="h-4 w-4 text-foreground" aria-hidden />
-            )}
-            <span className="sr-only">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-          </button>
           {hasUpdate && (
             <button
               type="button"
@@ -107,6 +109,54 @@ export default function Layout() {
               {isChecking ? "Checking…" : "Update"}
             </button>
           )}
+          <button
+            type="button"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border hover:bg-accent"
+            onClick={toggleTheme}
+          >
+            {theme === "dark" ? (
+              <Sun className="h-4 w-4 text-foreground" aria-hidden />
+            ) : (
+              <Moon className="h-4 w-4 text-foreground" aria-hidden />
+            )}
+            <span className="sr-only">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+          </button>
+          <div className="flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-card">
+            <button
+              type="button"
+              title="Minimize"
+              className="inline-flex h-8 w-9 items-center justify-center hover:bg-accent"
+              onClick={() => {
+                void window.electronAPI.minimizeWindow();
+              }}
+            >
+              <Minus className="h-4 w-4" aria-hidden />
+              <span className="sr-only">Minimize</span>
+            </button>
+            <button
+              type="button"
+              title={isMaximized ? "Restore" : "Maximize"}
+              className="inline-flex h-8 w-9 items-center justify-center hover:bg-accent"
+              onClick={() => {
+                void handleToggleMaximize();
+              }}
+            >
+              {isMaximized ? <Minimize2 className="h-4 w-4" aria-hidden /> : <Maximize2 className="h-4 w-4" aria-hidden />}
+              <span className="sr-only">{isMaximized ? "Restore window" : "Maximize window"}</span>
+            </button>
+            <button
+              type="button"
+              title="Close"
+              className="inline-flex h-8 w-9 items-center justify-center hover:bg-destructive hover:text-destructive-foreground"
+              onClick={() => {
+                void window.electronAPI.closeWindow();
+              }}
+            >
+              <X className="h-4 w-4" aria-hidden />
+              <span className="sr-only">Close</span>
+            </button>
+          </div>
         </div>
       </header>
 

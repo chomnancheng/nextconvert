@@ -103,6 +103,8 @@ export function useConvert() {
         outputPath,
         batchDir,           // used when outputPath is undefined
         preset: settings.preset,
+        customWidth: settings.customWidth,
+        customHeight: settings.customHeight,
         quality: settings.quality,
         duration: settings.duration,
         audioPath,
@@ -117,7 +119,15 @@ export function useConvert() {
         setState((s) => ({ ...s, progress: Math.min(99, overall) }));
       });
 
-      const result = await window.electronAPI.convert(jobId, options);
+      let result: ConvertResult;
+      try {
+        result = await window.electronAPI.convert(jobId, options);
+      } catch (error) {
+        result = {
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to invoke conversion.",
+        };
+      }
       progressUnsub();
 
       if (stopRequestedRef.current) {

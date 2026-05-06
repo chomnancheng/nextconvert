@@ -12,10 +12,31 @@ export interface MusicSavedFolder extends MusicScanResult {
 }
 
 export interface SavedSettings {
-  musicFolderPath: string;
-  musicEnabled: boolean;
+  preset: "reel" | "story" | "square" | "custom";
+  customWidth: number;
+  customHeight: number;
+  duration: number;
+  quality: number;
+  watermark: {
+    enabled: boolean;
+    type: "text" | "image";
+    text: string;
+    imagePath: string;
+    position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+    opacity: number;
+  };
+  music: {
+    enabled: boolean;
+    folderPath: string;
+    volume: number;
+  };
+  metadata: {
+    title: string;
+    author: string;
+    description: string;
+  };
   outputDir: string;
-  gpuEncoder: string;
+  encoder: "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
 }
 
 export interface EncoderOption {
@@ -45,6 +66,7 @@ export interface ElectronAPI {
   convert: (jobId: string, options: ConvertOptionsLegacy) => Promise<ConvertResult>;
   onConvertProgress: (cb: (jobId: string, percent: number) => void) => () => void;
   showItem: (filePath: string) => Promise<void>;
+  imageToDataUrl: (filePath: string) => Promise<string>;
   /** Get the absolute filesystem path for a File object (works with contextIsolation). */
   getFilePath: (file: File) => string;
   /** Scan folder for audio files (mp3 + mp4), persist path + enabled state. */
@@ -56,6 +78,8 @@ export interface ElectronAPI {
   /** Persist output directory. */
   saveOutputDir: (dir: string) => Promise<void>;
   saveGpuEncoder: (encoder: string) => Promise<void>;
+  saveAllSettings: (settings: SavedSettings) => Promise<void>;
+  resetSettingsDefaults: () => Promise<void>;
   /** Load all persisted settings at startup. */
   getSavedSettings: () => Promise<SavedSettings>;
   pickMusicTrack: (folderPath: string, minDuration: number) => Promise<string | null>;
@@ -63,6 +87,10 @@ export interface ElectronAPI {
   listEncoders: () => Promise<EncoderOption[]>;
   checkForUpdates: () => Promise<UpdateCheckResult>;
   downloadLatestUpdate: () => Promise<UpdateDownloadResult>;
+  minimizeWindow: () => Promise<void>;
+  toggleMaximizeWindow: () => Promise<boolean>;
+  isWindowMaximized: () => Promise<boolean>;
+  closeWindow: () => Promise<void>;
 }
 
 contextBridge.exposeInMainWorld("electronAPI", {
@@ -83,6 +111,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   showItem: (filePath: string) => ipcRenderer.invoke("shell:showItem", filePath),
+  imageToDataUrl: (filePath: string) => ipcRenderer.invoke("image:toDataUrl", filePath),
 
   // webUtils.getPathForFile is the official Electron API for getting file paths
   // in contextIsolation renderers — replaces the non-standard File.path property.
@@ -99,6 +128,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveMusicEnabled: (enabled: boolean) => ipcRenderer.invoke("music:saveEnabled", enabled),
   saveOutputDir: (dir: string) => ipcRenderer.invoke("settings:saveOutputDir", dir),
   saveGpuEncoder: (encoder: string) => ipcRenderer.invoke("settings:saveGpuEncoder", encoder),
+  saveAllSettings: (settings: SavedSettings) => ipcRenderer.invoke("settings:saveAll", settings),
+  resetSettingsDefaults: () => ipcRenderer.invoke("settings:resetDefaults"),
   getSavedSettings: () => ipcRenderer.invoke("settings:getSaved"),
   pickMusicTrack: (folderPath: string, minDuration: number) =>
     ipcRenderer.invoke("music:pickTrack", folderPath, minDuration),
@@ -106,4 +137,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   listEncoders: () => ipcRenderer.invoke("encoder:list"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
   downloadLatestUpdate: () => ipcRenderer.invoke("update:downloadLatest"),
+  minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
+  toggleMaximizeWindow: () => ipcRenderer.invoke("window:maximizeToggle"),
+  isWindowMaximized: () => ipcRenderer.invoke("window:isMaximized"),
+  closeWindow: () => ipcRenderer.invoke("window:close"),
 } satisfies ElectronAPI);

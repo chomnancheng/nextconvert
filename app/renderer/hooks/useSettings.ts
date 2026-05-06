@@ -4,12 +4,13 @@ import { useState, useCallback, useEffect } from "react";
 // Types
 // ---------------------------------------------------------------------------
 
-export type SizePreset = "reel" | "story" | "square";
+export type SizePreset = "reel" | "story" | "square" | "custom";
 
 export const PRESET_LABELS: Record<SizePreset, string> = {
   reel:   "Facebook Reel (1080×1920)",
   story:  "Facebook Story (1080×1920)",
   square: "Facebook Square (1080×1080)",
+  custom: "Custom size",
 };
 
 export type WatermarkPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -44,6 +45,8 @@ export interface MetadataSettings {
 
 export interface Settings {
   preset: SizePreset;
+  customWidth: number;
+  customHeight: number;
   duration: number;
   quality: number;
   watermark: WatermarkSettings;
@@ -60,6 +63,8 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   preset: "reel",
+  customWidth: 1080,
+  customHeight: 1920,
   duration: 59,
   quality: 80,
   watermark: {
@@ -94,39 +99,63 @@ export function useSettings() {
     { value: "cpu", label: "CPU (libx264)" },
   ]);
 
+  const persistSettings = useCallback((next: Settings) => {
+    void window.electronAPI.saveAllSettings({
+      preset: next.preset,
+      customWidth: next.customWidth,
+      customHeight: next.customHeight,
+      duration: next.duration,
+      quality: next.quality,
+      watermark: next.watermark,
+      music: {
+        enabled: next.music.enabled,
+        folderPath: next.music.folderPath,
+        volume: next.music.volume,
+      },
+      metadata: next.metadata,
+      outputDir: next.outputDir,
+      encoder: next.encoder,
+    }).catch(() => {
+      // Backward-compatible fallback while old main process is still running.
+      void window.electronAPI.saveOutputDir(next.outputDir);
+      void window.electronAPI.saveGpuEncoder(next.encoder);
+      void window.electronAPI.saveMusicEnabled(next.music.enabled);
+    });
+  }, []);
+
+  const updateSettings = useCallback((updater: (prev: Settings) => Settings) => {
+    setSettings((prev) => {
+      const next = updater(prev);
+      persistSettings(next);
+      return next;
+    });
+  }, [persistSettings]);
+
   // Restore persisted settings once on mount
   useEffect(() => {
     window.electronAPI.getSavedSettings().then((saved) => {
       setSettings((s) => {
-        let next = { ...s };
+        const next: Settings = {
+          ...s,
+          preset: saved.preset ?? s.preset,
+          customWidth: saved.customWidth ?? s.customWidth,
+          customHeight: saved.customHeight ?? s.customHeight,
+          duration: saved.duration ?? s.duration,
+          quality: saved.quality ?? s.quality,
+          watermark: { ...s.watermark, ...(saved.watermark ?? {}) },
+          music: { ...s.music, ...(saved.music ?? {}) },
+          metadata: { ...s.metadata, ...(saved.metadata ?? {}) },
+          outputDir: saved.outputDir ?? s.outputDir,
+          encoder: (saved.encoder as EncoderMode) ?? s.encoder,
+        };
 
-        // Restore output dir
-        if (saved.outputDir) {
-          next = { ...next, outputDir: saved.outputDir };
-        }
-        if (saved.gpuEncoder) {
-          next = { ...next, encoder: saved.gpuEncoder as EncoderMode };
-        }
-
-        // Restore music folder + enabled state
-        if (saved.musicFolderPath) {
-          next = {
-            ...next,
-            music: {
-              ...next.music,
-              enabled: saved.musicEnabled,
-              folderPath: saved.musicFolderPath,
-            },
-          };
-          // Re-scan the folder to get current file list
-          window.electronAPI.scanMusicFolder(saved.musicFolderPath).then((result) => {
+        if (next.music.folderPath) {
+          window.electronAPI.scanMusicFolder(next.music.folderPath).then((result) => {
             setSettings((cur) => ({
               ...cur,
               music: { ...cur.music, files: result.files, fileCount: result.count },
             }));
           });
-        } else {
-          next = { ...next, music: { ...next.music, enabled: saved.musicEnabled } };
         }
 
         return next;
@@ -142,46 +171,55 @@ export function useSettings() {
   }, []);
 
   const setPreset = useCallback((preset: SizePreset) =>
-    setSettings((s) => ({ ...s, preset })), []);
+    updateSettings((s) => ({ ...s, preset })), [updateSettings]);
+
+  const setCustomSize = useCallback((patch: Partial<Pick<Settings, "customWidth" | "customHeight">>) =>
+    updateSettings((s) => ({
+      ...s,
+      customWidth: patch.customWidth ?? s.customWidth,
+      customHeight: patch.customHeight ?? s.customHeight,
+    })), [updateSettings]);
 
   const setDuration = useCallback((duration: number) =>
-    setSettings((s) => ({ ...s, duration })), []);
+    updateSettings((s) => ({ ...s, duration })), [updateSettings]);
 
   const setQuality = useCallback((quality: number) =>
-    setSettings((s) => ({ ...s, quality })), []);
+    updateSettings((s) => ({ ...s, quality })), [updateSettings]);
 
   const setWatermark = useCallback((patch: Partial<WatermarkSettings>) =>
-    setSettings((s) => ({ ...s, watermark: { ...s.watermark, ...patch } })), []);
+    updateSettings((s) => ({ ...s, watermark: { ...s.watermark, ...patch } })), [updateSettings]);
 
   const setMusic = useCallback((patch: Partial<MusicSettings>) => {
-    // Persist enabled state whenever it changes
-    if (patch.enabled !== undefined) {
-      window.electronAPI.saveMusicEnabled(patch.enabled);
-    }
-    setSettings((s) => ({ ...s, music: { ...s.music, ...patch } }));
-  }, []);
+    updateSettings((s) => ({ ...s, music: { ...s.music, ...patch } }));
+  }, [updateSettings]);
 
   const setMetadata = useCallback((patch: Partial<MetadataSettings>) =>
-    setSettings((s) => ({ ...s, metadata: { ...s.metadata, ...patch } })), []);
+    updateSettings((s) => ({ ...s, metadata: { ...s.metadata, ...patch } })), [updateSettings]);
 
   const setOutputDir = useCallback((outputDir: string) => {
-    // Persist whenever changed
-    window.electronAPI.saveOutputDir(outputDir);
-    setSettings((s) => ({ ...s, outputDir }));
-  }, []);
+    updateSettings((s) => ({ ...s, outputDir }));
+  }, [updateSettings]);
 
   const setEncoder = useCallback((encoder: EncoderMode) => {
-    window.electronAPI.saveGpuEncoder(encoder);
-    setSettings((s) => ({ ...s, encoder }));
-  }, []);
+    updateSettings((s) => ({ ...s, encoder }));
+  }, [updateSettings]);
 
-  const reset = useCallback(() => setSettings(DEFAULT_SETTINGS), []);
+  const reset = useCallback(() => {
+    void window.electronAPI.resetSettingsDefaults().catch(() => {
+      // Fallback for older main process versions.
+      void window.electronAPI.saveOutputDir("");
+      void window.electronAPI.saveGpuEncoder("auto");
+      void window.electronAPI.saveMusicEnabled(false);
+    });
+    setSettings(DEFAULT_SETTINGS);
+  }, []);
 
   return {
     settings,
     loaded,
     encoders,
     setPreset,
+    setCustomSize,
     setDuration,
     setQuality,
     setWatermark,

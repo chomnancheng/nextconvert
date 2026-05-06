@@ -39,6 +39,8 @@ interface SettingsPanelProps {
   onMetadata: (patch: Partial<MetadataSettings>) => void;
   onOutputDir: (v: string) => void;
   onEncoder: (v: EncoderMode) => void;
+  onCustomSize: (patch: { customWidth?: number; customHeight?: number }) => void;
+  onResetDefaults: () => void;
   encoderOptions: EncoderOption[];
   disabled?: boolean;
 }
@@ -88,6 +90,8 @@ export default function SettingsPanel({
   onMetadata,
   onOutputDir,
   onEncoder,
+  onCustomSize,
+  onResetDefaults,
   encoderOptions,
   disabled = false,
 }: SettingsPanelProps) {
@@ -150,6 +154,31 @@ export default function SettingsPanel({
               </SelectContent>
             </Select>
           </Field>
+          {settings.preset === "custom" && (
+            <Field label="Custom size (W × H)">
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="number"
+                  min={64}
+                  max={7680}
+                  value={settings.customWidth}
+                  onChange={(e) => onCustomSize({ customWidth: Number(e.target.value) || 64 })}
+                  className={cn(inputCls, "w-24")}
+                  disabled={disabled}
+                />
+                <span className="text-xs text-muted-foreground">×</span>
+                <Input
+                  type="number"
+                  min={64}
+                  max={7680}
+                  value={settings.customHeight}
+                  onChange={(e) => onCustomSize({ customHeight: Number(e.target.value) || 64 })}
+                  className={cn(inputCls, "w-24")}
+                  disabled={disabled}
+                />
+              </div>
+            </Field>
+          )}
 
           <Field label="Encoder / GPU" htmlFor="s-encoder">
             <Select
@@ -456,6 +485,23 @@ export default function SettingsPanel({
           </Field>
 
         </div>
+      </div>
+
+      <Separator />
+
+      <div className="pt-1">
+        <button
+          type="button"
+          onClick={onResetDefaults}
+          disabled={disabled}
+          className={cn(
+            "inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium",
+            "text-muted-foreground hover:bg-muted hover:text-foreground transition-colors",
+            disabled && "opacity-50 pointer-events-none",
+          )}
+        >
+          Reset to default
+        </button>
       </div>
 
     </div>

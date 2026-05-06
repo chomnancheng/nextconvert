@@ -15,7 +15,7 @@ const execFileAsync = promisify(execFile);
 const ffmpegBin: string = (require("ffmpeg-static") as string)
   .replace(/app\.asar([/\\])/, "app.asar.unpacked$1");
 
-const isDev = process.env.NODE_ENV === "development";
+const isDev = !app.isPackaged || process.env.NODE_ENV === "development";
 
 const AUDIO_EXTS = new Set([".mp3", ".mp4", ".m4a", ".aac"]);
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
@@ -43,6 +43,47 @@ interface UpdateCheckResult {
   latestVersion?: string;
   error?: string;
 }
+
+interface PersistedSettings {
+  preset: "reel" | "story" | "square" | "custom";
+  customWidth: number;
+  customHeight: number;
+  duration: number;
+  quality: number;
+  watermark: {
+    enabled: boolean;
+    type: "text" | "image";
+    text: string;
+    imagePath: string;
+    position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+    opacity: number;
+  };
+  music: {
+    enabled: boolean;
+    folderPath: string;
+    volume: number;
+  };
+  metadata: {
+    title: string;
+    author: string;
+    description: string;
+  };
+  outputDir: string;
+  encoder: "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
+}
+
+function mimeFromImagePath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  return "image/jpeg";
+}
+
+ipcMain.handle("image:toDataUrl", async (_event, filePath: string) => {
+  const data = await fs.promises.readFile(filePath);
+  const mime = mimeFromImagePath(filePath);
+  return `data:${mime};base64,${data.toString("base64")}`;
+});
 
 function parseVersion(version: string): number[] {
   return version.replace(/^v/i, "").split(".").map((x) => parseInt(x, 10) || 0);
@@ -217,6 +258,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -226,7 +268,6 @@ function createWindow() {
 
   if (isDev) {
     win.loadURL("http://localhost:5173");
-    win.webContents.openDevTools();
   } else {
     win.loadFile(path.join(__dirname, "../../renderer/index.html"));
   }
@@ -301,12 +342,53 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("settings:getSaved", () => {
+    const v2 = storeGet<PersistedSettings | null>("settingsV2", null);
+    if (v2) return v2;
+    // Backward-compatible fallback for older saved keys.
     return {
-      musicFolderPath: storeGet<string>("musicFolderPath", ""),
-      musicEnabled: storeGet<boolean>("musicEnabled", false),
+      preset: "reel",
+      customWidth: 1080,
+      customHeight: 1920,
+      duration: 59,
+      quality: 80,
+      watermark: {
+        enabled: false,
+        type: "text",
+        text: "",
+        imagePath: "",
+        position: "bottom-right",
+        opacity: 80,
+      },
+      music: {
+        enabled: storeGet<boolean>("musicEnabled", false),
+        folderPath: storeGet<string>("musicFolderPath", ""),
+        volume: 80,
+      },
+      metadata: {
+        title: "",
+        author: "",
+        description: "",
+      },
       outputDir: storeGet<string>("outputDir", ""),
-      gpuEncoder: storeGet<string>("gpuEncoder", "auto"),
-    };
+      encoder: storeGet<PersistedSettings["encoder"]>("gpuEncoder", "auto"),
+    } satisfies PersistedSettings;
+  });
+
+  ipcMain.handle("settings:saveAll", (_event, settings: PersistedSettings) => {
+    storeSet("settingsV2", settings);
+    // Keep legacy fields in sync for compatibility with old code paths.
+    storeSet("musicFolderPath", settings.music.folderPath);
+    storeSet("musicEnabled", settings.music.enabled);
+    storeSet("outputDir", settings.outputDir);
+    storeSet("gpuEncoder", settings.encoder);
+  });
+
+  ipcMain.handle("settings:resetDefaults", () => {
+    storeSet("settingsV2", null);
+    storeSet("musicFolderPath", "");
+    storeSet("musicEnabled", false);
+    storeSet("outputDir", "");
+    storeSet("gpuEncoder", "auto");
   });
 
   ipcMain.handle("settings:saveGpuEncoder", (_event, encoder: string) => {
@@ -316,9 +398,22 @@ app.whenReady().then(() => {
   // ── FFmpeg ────────────────────────────────────────────────────────────────
 
   ipcMain.handle("convert:run", async (_event, jobId: string, options: ConvertOptionsLegacy) => {
-    return convert(options, (percent) => {
-      win.webContents.send("convert:progress", { jobId, percent });
-    }, jobId);
+    try {
+      const safePreset = options.preset === "custom" || options.preset === "reel" || options.preset === "story" || options.preset === "square"
+        ? options.preset
+        : "reel";
+      return await convert({
+        ...options,
+        preset: safePreset,
+      }, (percent) => {
+        win.webContents.send("convert:progress", { jobId, percent });
+      }, jobId);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Unknown conversion error.",
+      };
+    }
   });
 
   ipcMain.handle("convert:cancel", (_event, jobId: string) => {
@@ -343,6 +438,29 @@ app.whenReady().then(() => {
 
   ipcMain.handle("shell:showItem", (_event, filePath: string) => {
     shell.showItemInFolder(filePath);
+  });
+
+  // ── Window controls ───────────────────────────────────────────────────────
+
+  ipcMain.handle("window:minimize", () => {
+    win.minimize();
+  });
+
+  ipcMain.handle("window:maximizeToggle", () => {
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+    return win.isMaximized();
+  });
+
+  ipcMain.handle("window:isMaximized", () => {
+    return win.isMaximized();
+  });
+
+  ipcMain.handle("window:close", () => {
+    win.close();
   });
 
   // ── Updates ───────────────────────────────────────────────────────────────
