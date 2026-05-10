@@ -1,5 +1,7 @@
+import { useMemo, useEffect, useState, useCallback } from "react";
+import { cn } from "@/lib/utils";
 import DropZone from "@/renderer/components/DropZone";
-import ThumbnailGrid from "@/renderer/components/ThumbnailGrid";
+import MediaTable from "@/renderer/components/MediaTable";
 import ConvertBar from "@/renderer/components/ConvertBar";
 import SettingsPanel from "@/renderer/pages/Settings";
 import { ScrollArea } from "@/renderer/components/ui/scroll-area";
@@ -7,9 +9,11 @@ import { useImageFiles } from "@/renderer/hooks/useImageFiles";
 import { useConvert } from "@/renderer/hooks/useConvert";
 import { useSettings } from "@/renderer/hooks/useSettings";
 
+export type ReelStoryMode = "images" | "paragraph";
+
 export default function ImageToReels() {
   const { files, addPaths, removeFile, clearFiles } = useImageFiles();
-  const { status, progress, currentLabel, outputPaths, errorMessage, run, reset, stop } = useConvert();
+  const { status, fileProgress, outputPaths, errorMessage, run, reset, stop } = useConvert();
   const {
     settings,
     encoders,
@@ -19,48 +23,158 @@ export default function ImageToReels() {
     setQuality,
     setWatermark,
     setMusic,
+    setVideoBg,
     setMetadata,
     setOutputDir,
     setEncoder,
+    setPhotoFit,
+    setConcurrentJobs,
     reset: resetSettings,
   } = useSettings();
 
+  const [workMode, setWorkMode] = useState<ReelStoryMode>("images");
+
   const isLocked = status === "running";
+  const imagesMode = workMode === "images";
+
+  // Overall progress aggregated from per-item state
+  const { overallProgress, currentLabel } = useMemo(() => {
+    const vals = Object.values(fileProgress);
+    if (vals.length === 0) return { overallProgress: 0, currentLabel: "" };
+    const totalPct = vals.reduce(
+      (sum, v) => sum + (v.status === "done" ? 100 : v.progress),
+      0,
+    );
+    const doneCount = vals.filter((v) => v.status === "done").length;
+    const total = vals.length;
+    return {
+      overallProgress: Math.round(totalPct / vals.length),
+      currentLabel: total > 0 ? `${doneCount}/${total}` : "",
+    };
+  }, [fileProgress]);
+
+  const [inputSizesById, setInputSizesById] = useState<Record<string, number>>({});
+
+  const handleClearAll = useCallback(() => {
+    clearFiles();
+    reset();
+  }, [clearFiles, reset]);
+
+  useEffect(() => {
+    const paths = files.map((f) => f.path).filter(Boolean);
+    if (paths.length === 0) {
+      setInputSizesById({});
+      return;
+    }
+    let cancelled = false;
+    void window.electronAPI.getFileSizes(paths).then((map) => {
+      if (cancelled) return;
+      setInputSizesById(
+        Object.fromEntries(
+          files.filter((f) => f.path).map((f) => [f.id, map[f.path] ?? 0]),
+        ),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [files]);
+
+  const tableItems = useMemo(
+    () =>
+      files.map((f) => ({
+        id: f.id,
+        name: f.name,
+        previewUrl: f.previewUrl,
+        inputSizeBytes: inputSizesById[f.id],
+      })),
+    [files, inputSizesById],
+  );
 
   return (
     <div className="flex flex-1 gap-4 overflow-hidden">
 
-      {/* ── Left: drop zone + thumbnails + convert bar ── */}
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden min-w-0">
-        <ScrollArea className="flex-1 pr-2">
-          <div className="flex flex-col gap-4">
-            <DropZone
-              onPaths={addPaths}
-              hasFiles={files.length > 0}
-              disabled={isLocked}
-            />
-            <ThumbnailGrid
-              files={files}
-              onRemove={removeFile}
-              onClear={clearFiles}
-              disabled={isLocked}
-            />
-          </div>
-        </ScrollArea>
-
-        <div className="shrink-0 border-t border-border pt-4">
-          <ConvertBar
-            fileCount={files.length}
-            status={status}
-            progress={progress}
-            currentLabel={currentLabel}
-            outputPaths={outputPaths}
-            errorMessage={errorMessage}
-            onConvert={() => run(files.map((f) => f.path), settings)}
-            onReset={reset}
-            onStop={stop}
-          />
+      {/* ── Left: mode switch + main area + convert ── */}
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden min-w-0">
+        <div
+          className="inline-flex shrink-0 rounded-lg border border-border p-0.5 bg-muted/50"
+          role="group"
+          aria-label="Story source mode"
+        >
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              imagesMode
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setWorkMode("images")}
+          >
+            By Images
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              !imagesMode
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setWorkMode("paragraph")}
+          >
+            By Paragraph
+          </button>
         </div>
+
+        {imagesMode ? (
+          <>
+            <ScrollArea className="flex-1 pr-2">
+              <div className="flex flex-col gap-4">
+                <DropZone
+                  onPaths={addPaths}
+                  hasFiles={files.length > 0}
+                  disabled={isLocked}
+                />
+                <MediaTable
+                  items={tableItems}
+                  fileProgress={fileProgress}
+                  onRemove={removeFile}
+                  onClear={handleClearAll}
+                  label="images"
+                  disabled={isLocked}
+                />
+              </div>
+            </ScrollArea>
+
+            <div className="shrink-0 border-t border-border pt-4">
+              <ConvertBar
+                fileCount={files.length}
+                status={status}
+                progress={overallProgress}
+                currentLabel={currentLabel}
+                outputPaths={outputPaths}
+                errorMessage={errorMessage}
+                onConvert={() => run(files, "by-images", settings)}
+                onReset={reset}
+                onStop={stop}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <ScrollArea className="flex-1 pr-2">
+              <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-border px-6 py-10 text-center">
+                <p className="max-w-sm text-sm text-muted-foreground leading-relaxed">
+                  Build reels from paragraph text — this workflow will be wired up later. Encoder, size, duration, and audio options match <span className="font-medium text-foreground/90">By Images</span> (same panel on the right).
+                </p>
+              </div>
+            </ScrollArea>
+            <div className="shrink-0 border-t border-border pt-3 text-center">
+              <p className="text-[11px] text-muted-foreground">Convert from paragraph — coming soon</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Right: settings panel ── */}
@@ -73,9 +187,12 @@ export default function ImageToReels() {
             onQuality={setQuality}
             onWatermark={setWatermark}
             onMusic={setMusic}
+            onVideoBg={setVideoBg}
             onMetadata={setMetadata}
             onOutputDir={setOutputDir}
             onEncoder={setEncoder}
+            onPhotoFit={setPhotoFit}
+            onConcurrentJobs={setConcurrentJobs}
             onCustomSize={setCustomSize}
             onResetDefaults={resetSettings}
             encoderOptions={encoders}

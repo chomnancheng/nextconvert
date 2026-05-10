@@ -1,25 +1,54 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Settings } from "@/renderer/hooks/useSettings";
+import type { ImageFile } from "@/renderer/hooks/useImageFiles";
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Which set of files drives the output count. */
+export type ConvertMode = "by-images" | "by-videos";
 export type ConvertStatus = "idle" | "running" | "done" | "error";
+export type FileStatus = "pending" | "running" | "done" | "error";
+
+export interface FileProgress {
+  status: FileStatus;
+  progress: number;
+  outputPath?: string;
+  /** MP4 size after successful encode */
+  outputSizeBytes?: number;
+  error?: string;
+}
 
 export interface ConvertState {
   status: ConvertStatus;
-  progress: number;
-  currentLabel: string;
+  /** Keys are image file IDs in by-images mode, or "v_N" in by-videos mode. */
+  fileProgress: Record<string, FileProgress>;
   outputPaths: string[];
   errorMessage: string | null;
 }
 
 const INITIAL: ConvertState = {
   status: "idle",
-  progress: 0,
-  currentLabel: "",
+  fileProgress: {},
   outputPaths: [],
   errorMessage: null,
 };
 
-/** "converted-2026-05-04-1430" */
+const DEFAULT_CONCURRENCY = 4;
+
+function clampConcurrency(n: number): number {
+  return Math.min(8, Math.max(1, Math.round(n)));
+}
+
+function effectiveConcurrency(settingsConcurrency: number | undefined, taskCount: number): number {
+  return Math.min(clampConcurrency(settingsConcurrency ?? DEFAULT_CONCURRENCY), taskCount);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function makeBatchDirName(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
@@ -29,154 +58,296 @@ function makeBatchDirName(): string {
   );
 }
 
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * Non-repeating shuffle queue — cycles through all items before repeating.
+ * Returns null when the pool is empty.
+ */
+class ShuffleQueue<T> {
+  private pool: T[];
+  private queue: T[] = [];
+
+  constructor(items: T[]) {
+    this.pool = [...items];
+  }
+
+  pick(): T | null {
+    if (this.pool.length === 0) return null;
+    if (this.queue.length === 0) {
+      this.queue = shuffleInPlace([...this.pool]);
+    }
+    return this.queue.pop()!;
+  }
+}
+
+function dirname(filePath: string): string {
+  return filePath.replace(/[\\/][^\\/]*$/, "");
+}
+
+function basename(filePath: string): string {
+  return (filePath.split(/[\\/]/).pop() ?? filePath).replace(/\.[^.]+$/, "");
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
 export function useConvert() {
   const [state, setState] = useState<ConvertState>(INITIAL);
-  const jobIdRef = useRef<string | null>(null);
   const stopRequestedRef = useRef(false);
+  const activeJobIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    // Keep a subscription open just to satisfy the API; actual progress is
-    // subscribed per-job inside run()
     const unsub = window.electronAPI.onConvertProgress(() => {});
     return unsub;
   }, []);
 
-  const run = useCallback(async (allInputs: string[], settings: Settings) => {
-    stopRequestedRef.current = false;
-    const inputs = allInputs.filter((p) => p.trim().length > 0);
-    if (inputs.length === 0) {
-      setState((s) => ({
-        ...s,
-        status: "error",
-        errorMessage: "No file paths found. Try Browse files or drag & drop from Finder.",
-      }));
-      return;
-    }
+  const run = useCallback(
+    async (images: ImageFile[], mode: ConvertMode, settings: Settings) => {
+      stopRequestedRef.current = false;
+      activeJobIdsRef.current.clear();
 
-    // One batchDir name shared across all images in this run
-    const batchDir = makeBatchDirName();
-    const batchId = Math.random().toString(36).slice(2);
+      // ── Determine primary items (drive output count) ──────────────────────
+      // by-images: each uploaded image becomes one output
+      // by-videos: each video bg clip becomes one output; images are overlaid randomly
+      const videoBgFiles = settings.videoBg.enabled ? settings.videoBg.files : [];
+      const primaryPaths: string[] = mode === "by-images"
+        ? images.map((f) => f.path)
+        : videoBgFiles;
+      const primaryIds: string[] = mode === "by-images"
+        ? images.map((f) => f.id)
+        : videoBgFiles.map((_, i) => `v_${i}`);
 
-    setState({ status: "running", progress: 0, currentLabel: "", outputPaths: [], errorMessage: null });
-
-    const produced: string[] = [];
-    const errors: string[] = [];
-
-    for (let i = 0; i < inputs.length; i++) {
-      if (stopRequestedRef.current) break;
-      const imagePath = inputs[i];
-      const jobId = `${batchId}_${i}`;
-      jobIdRef.current = jobId;
-
-      const basePercent = Math.round((i / inputs.length) * 100);
-      const sliceSize = Math.round(100 / inputs.length);
-
-      setState((s) => ({
-        ...s,
-        progress: basePercent,
-        currentLabel: inputs.length > 1 ? `Image ${i + 1} of ${inputs.length}` : "Converting…",
-      }));
-
-      // Pick a random music track for this video if music is enabled
-      let audioPath: string | undefined;
-      if (settings.music.enabled && settings.music.folderPath && settings.music.fileCount > 0) {
-        const track = await window.electronAPI.pickMusicTrack(
-          settings.music.folderPath,
-          settings.duration,
-        );
-        audioPath = track ?? undefined;
+      if (primaryPaths.length === 0) {
+        setState((s) => ({
+          ...s,
+          status: "error",
+          errorMessage:
+            mode === "by-images"
+              ? "No images in the list. Drop or browse to add images."
+              : "No video background clips found. Enable video background and pick a folder in Settings.",
+        }));
+        return;
       }
 
-      // Output path:
-      // - If user picked a base output dir: <outputDir>/<batchDir>/<name>_reel.mp4
-      // - Otherwise: leave outputPath undefined → ffmpeg places next to input in batchDir
-      let outputPath: string | undefined;
-      if (settings.outputDir) {
-        const base = imagePath.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "output";
-        outputPath = `${settings.outputDir}/${batchDir}/${base}_reel.mp4`;
+      const batchDir = makeBatchDirName();
+      const batchId = Math.random().toString(36).slice(2);
+
+      const initProgress: Record<string, FileProgress> = {};
+      for (const id of primaryIds) {
+        initProgress[id] = { status: "pending", progress: 0 };
       }
-      // When outputPath is undefined, batchDir is passed and used by ffmpeg.ts
-      // to create <inputFileDir>/batchDir/<name>_reel.mp4
+      setState({ status: "running", fileProgress: initProgress, outputPaths: [], errorMessage: null });
 
-      const options: ConvertOptions = {
-        input: imagePath,
-        outputPath,
-        batchDir,           // used when outputPath is undefined
-        preset: settings.preset,
-        customWidth: settings.customWidth,
-        customHeight: settings.customHeight,
-        quality: settings.quality,
-        duration: settings.duration,
-        audioPath,
-        audioVolume: settings.music.volume,
-        encoder: settings.encoder,
-      };
+      // ── Shuffle queues (non-repeating) ────────────────────────────────────
+      const musicQueue =
+        settings.music.enabled && settings.music.files.length > 0
+          ? new ShuffleQueue(settings.music.files)
+          : null;
 
-      // Subscribe to this specific job's progress
-      const progressUnsub = window.electronAPI.onConvertProgress((id, pct) => {
-        if (id !== jobId) return;
-        const overall = basePercent + Math.round((pct / 100) * sliceSize);
-        setState((s) => ({ ...s, progress: Math.min(99, overall) }));
+      // In by-images mode: video bg clips are picked randomly per image
+      // In by-videos mode: images are picked randomly as overlays per video
+      const videoBgQueue = mode === "by-images" && videoBgFiles.length > 0
+        ? new ShuffleQueue(videoBgFiles)
+        : null;
+      const imageQueue = mode === "by-videos" && images.length > 0
+        ? new ShuffleQueue(images)
+        : null;
+
+      const produced: string[] = [];
+      const errors: string[] = [];
+
+      // ── Build task closures ───────────────────────────────────────────────
+      let taskIndex = 0;
+      const tasks = primaryPaths.map((primaryPath, i) => async () => {
+        if (stopRequestedRef.current) return;
+
+        const itemId = primaryIds[i];
+        const jobId = `${batchId}_${i}`;
+        activeJobIdsRef.current.add(jobId);
+
+        setState((s) => ({
+          ...s,
+          fileProgress: { ...s.fileProgress, [itemId]: { status: "running", progress: 0 } },
+        }));
+
+        // Pick random audio (non-repeat)
+        const audioPath = musicQueue?.pick() ?? undefined;
+
+        // Determine video/image inputs based on mode
+        let input: string;
+        let inputIsVideo: boolean;
+        let overlayImagePath: string | undefined;
+        let outputBase: string;
+
+        if (mode === "by-images") {
+          // Primary = image; optionally pick a video bg as the visual background
+          const videoBg = videoBgQueue?.pick() ?? null;
+          if (videoBg) {
+            // Video background mode: video loops behind, image centered on top
+            input = videoBg;
+            inputIsVideo = true;
+            overlayImagePath = primaryPath;
+          } else {
+            // Classic image-loop mode
+            input = primaryPath;
+            inputIsVideo = false;
+            overlayImagePath = undefined;
+          }
+          outputBase = basename(primaryPath);
+        } else {
+          // Primary = video bg clip; optionally overlay a randomly-picked image
+          const overlayImage = imageQueue?.pick();
+          input = primaryPath;
+          inputIsVideo = true;
+          overlayImagePath = overlayImage?.path;
+          outputBase = basename(primaryPath);
+        }
+
+        // Compute explicit output path so naming is always predictable
+        const contentDir = mode === "by-images" ? dirname(primaryPath) : dirname(primaryPath);
+        const outDir = settings.outputDir
+          ? `${settings.outputDir}/${batchDir}`
+          : `${contentDir}/${batchDir}`;
+        const outputPath = `${outDir}/${outputBase}_reel.mp4`;
+
+        const options: ConvertOptions = {
+          input,
+          inputIsVideo,
+          overlayImagePath,
+          overlayColor: inputIsVideo ? settings.videoBg.overlayColor : undefined,
+          overlayOpacity: inputIsVideo ? settings.videoBg.overlayOpacity : undefined,
+          overlayImageMaxPercent: inputIsVideo ? settings.videoBg.overlayImageMaxPercent : undefined,
+          photoFit: settings.photoFit,
+          outputPath,
+          batchDir,
+          preset: settings.preset,
+          customWidth: settings.customWidth,
+          customHeight: settings.customHeight,
+          quality: settings.quality,
+          duration: settings.duration,
+          audioPath,
+          audioVolume: settings.music.volume,
+          encoder: settings.encoder,
+        };
+
+        // Subscribe to this job's progress events
+        const progressUnsub = window.electronAPI.onConvertProgress((id, pct) => {
+          if (id !== jobId) return;
+          setState((s) => ({
+            ...s,
+            fileProgress: {
+              ...s.fileProgress,
+              [itemId]: { ...s.fileProgress[itemId], status: "running", progress: pct },
+            },
+          }));
+        });
+
+        let result: ConvertResult;
+        try {
+          result = await window.electronAPI.convert(jobId, options);
+        } catch (err) {
+          result = {
+            ok: false,
+            error: err instanceof Error ? err.message : "Failed to invoke conversion.",
+          };
+        }
+        progressUnsub();
+        activeJobIdsRef.current.delete(jobId);
+
+        if (stopRequestedRef.current) {
+          setState((s) => ({
+            ...s,
+            fileProgress: {
+              ...s.fileProgress,
+              [itemId]: { status: "error", progress: 0, error: "Cancelled" },
+            },
+          }));
+          return;
+        }
+
+        if (result.ok && result.outputPath) {
+          produced.push(result.outputPath);
+          setState((s) => ({
+            ...s,
+            outputPaths: [...s.outputPaths, result.outputPath!],
+            fileProgress: {
+              ...s.fileProgress,
+              [itemId]: {
+                status: "done",
+                progress: 100,
+                outputPath: result.outputPath,
+                outputSizeBytes: result.outputSizeBytes,
+              },
+            },
+          }));
+        } else {
+          const errMsg = result.error ?? "unknown error";
+          const label = primaryPath.split(/[\\/]/).pop() ?? primaryPath;
+          errors.push(`${label}: ${errMsg}`);
+          setState((s) => ({
+            ...s,
+            fileProgress: {
+              ...s.fileProgress,
+              [itemId]: { status: "error", progress: 0, error: errMsg },
+            },
+          }));
+        }
       });
 
-      let result: ConvertResult;
-      try {
-        result = await window.electronAPI.convert(jobId, options);
-      } catch (error) {
-        result = {
-          ok: false,
-          error: error instanceof Error ? error.message : "Failed to invoke conversion.",
-        };
+      // ── Work-stealing concurrency runner ──────────────────────────────────
+      async function worker() {
+        while (!stopRequestedRef.current) {
+          const myIndex = taskIndex++;
+          if (myIndex >= tasks.length) break;
+          await tasks[myIndex]();
+        }
       }
-      progressUnsub();
+      await Promise.all(
+        Array.from(
+          { length: effectiveConcurrency(settings.concurrentJobs, tasks.length) },
+          worker,
+        ),
+      );
 
       if (stopRequestedRef.current) {
-        break;
+        setState((s) => ({
+          ...s,
+          status: "idle",
+          errorMessage:
+            produced.length > 0
+              ? "Conversion stopped. Partial output was saved."
+              : "Conversion stopped.",
+        }));
+        return;
       }
 
-      if (result.ok && result.outputPath) {
-        produced.push(result.outputPath);
-      } else {
-        const name = imagePath.split(/[\\/]/).pop() ?? imagePath;
-        errors.push(`${name}: ${result.error ?? "unknown error"}`);
-      }
-    }
-
-    jobIdRef.current = null;
-
-    if (stopRequestedRef.current) {
-      setState({
-        status: "idle",
-        progress: 0,
-        currentLabel: "",
-        outputPaths: produced,
-        errorMessage: produced.length > 0
-          ? "Conversion stopped. Partial output was saved."
-          : "Conversion stopped.",
-      });
-      return;
-    }
-
-    if (produced.length === 0) {
-      setState({
-        status: "error", progress: 0, currentLabel: "", outputPaths: [],
-        errorMessage: errors.join("\n"),
-      });
-    } else {
-      setState({
-        status: "done", progress: 100, currentLabel: "", outputPaths: produced,
-        errorMessage: errors.length > 0
-          ? `${errors.length} file(s) failed:\n${errors.join("\n")}`
-          : null,
-      });
-    }
-  }, []);
+      setState((s) => ({
+        ...s,
+        status: produced.length === 0 ? "error" : "done",
+        errorMessage:
+          produced.length === 0
+            ? errors.join("\n")
+            : errors.length > 0
+              ? `${errors.length} file(s) failed:\n${errors.join("\n")}`
+              : null,
+      }));
+    },
+    [],
+  );
 
   const reset = useCallback(() => setState(INITIAL), []);
+
   const stop = useCallback(async () => {
     stopRequestedRef.current = true;
-    const jobId = jobIdRef.current;
-    if (jobId) {
+    for (const jobId of activeJobIdsRef.current) {
       await window.electronAPI.cancelConvert(jobId);
     }
   }, []);

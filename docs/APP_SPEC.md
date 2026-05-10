@@ -1,7 +1,7 @@
-# App: Image to Reels Converter (Desktop)
+# App: NextConvert — Reel Stories (Desktop)
 
 ## Overview
-A desktop app built with Electron that converts images or folders into short videos (Reels format).
+A desktop app built with Electron that turns **still images into short reels** (preset sizes, optional B-roll folder + optional music). The main surface is labelled **“Reel Stories”** with **By Images** (live) vs **By Paragraph** (planned). **Technical truth for encode + persistence:** **`AGENTS.md`** (sections *Reel Stories UI* & *Reel Stories & conversion pipeline*) and **`.cursor/rules/nextconvert.mdc`**. Older bullets in this file (auth-required, slideshow) may lag the repo.
 
 ## Tech Stack
 - Runtime: Bun
@@ -18,7 +18,11 @@ A desktop app built with Electron that converts images or folders into short vid
 
 ---
 
-## Main Feature: Image to Reels
+## Main feature: Reel Stories
+
+### Modes (`ImageToReels`)
+- **By Images:** drag‑drop JPG/PNG/WebP batch → table + convert; shared settings panel on the right.
+- **By Paragraph:** UI placeholder — same settings apply when implemented.
 
 ### 1. Input
 - Drag & drop:
@@ -46,7 +50,7 @@ A desktop app built with Electron that converts images or folders into short vid
 
 #### Quality
 - Default: 80
-- Map to FFmpeg CRF scale
+- Maps to FFmpeg CRF-style quality in a social-friendly band (see **`AGENTS.md`** / `qualityToCrf` in **`app/lib/ffmpeg.ts`** — **not** a linear 0–51 squeeze to ultra-low CRF at default UI values).
 
 #### Watermark
 - Image or text

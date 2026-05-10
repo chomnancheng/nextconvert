@@ -18,7 +18,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["app/*"]
-    }
+    },
+    "types": ["vite/client", "react", "react-dom"]
   },
   "include": ["app/renderer", "app/lib"]
 }

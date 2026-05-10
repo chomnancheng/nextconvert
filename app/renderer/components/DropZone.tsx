@@ -14,10 +14,6 @@ function isImagePath(p: string): boolean {
   return IMAGE_EXTS.has(p.split(".").pop()?.toLowerCase() ?? "");
 }
 
-/**
- * Extract absolute filesystem paths from a FileList using Electron's
- * webUtils.getPathForFile — the official API that works with contextIsolation.
- */
 function getPathsFromFiles(fileList: FileList | File[]): string[] {
   const paths: string[] = [];
   for (const f of Array.from(fileList)) {
@@ -27,11 +23,7 @@ function getPathsFromFiles(fileList: FileList | File[]): string[] {
   return paths;
 }
 
-export default function DropZone({
-  onPaths,
-  hasFiles,
-  disabled = false,
-}: DropZoneProps) {
+export default function DropZone({ onPaths, hasFiles, disabled = false }: DropZoneProps) {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +55,6 @@ export default function DropZone({
     dragCounter.current = 0;
     setIsDraggingOver(false);
     if (disabled) return;
-
     const paths = getPathsFromFiles(e.dataTransfer.files);
     if (paths.length > 0) onPaths(paths);
   }, [disabled, onPaths]);
@@ -112,7 +103,7 @@ export default function DropZone({
       onDrop={handleDrop}
       className={cn(
         "relative flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed",
-        "transition-colors duration-150 select-none min-h-[200px] px-8 py-10",
+        "transition-colors duration-150 select-none min-h-[160px] px-8 py-8",
         disabled
           ? "border-border bg-muted/10 opacity-50 pointer-events-none"
           : isDraggingOver
@@ -135,7 +126,7 @@ export default function DropZone({
         </div>
       ) : (
         <>
-          <UploadCloud className="h-9 w-9 text-muted-foreground/50" />
+          <UploadCloud className="h-8 w-8 text-muted-foreground/50" />
           <div className="text-center">
             <p className="text-sm font-medium text-foreground">
               Drag &amp; drop images or a folder

@@ -162,13 +162,13 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="flex flex-1 flex-col overflow-hidden px-6 pt-5 pb-6">
-        <Tabs defaultValue="image-to-reels" className="flex flex-1 flex-col overflow-hidden">
+        <Tabs defaultValue="reel-stories" className="flex flex-1 flex-col overflow-hidden">
           <TabsList className="w-fit">
-            <TabsTrigger value="image-to-reels">Image to Reels</TabsTrigger>
+            <TabsTrigger value="reel-stories">Reel Stories</TabsTrigger>
           </TabsList>
 
           <TabsContent
-            value="image-to-reels"
+            value="reel-stories"
             className="flex flex-1 overflow-hidden mt-4"
           >
             <ImageToReels />

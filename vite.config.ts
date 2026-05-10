@@ -17,6 +17,14 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Must match Electron dev URL (127.0.0.1). Default "localhost" can bind IPv6-only
+    // on some Macs, so Chromium loading http://127.0.0.1:5173/ never reaches Vite → blank window.
+    host: "127.0.0.1",
+    hmr: {
+      host: "127.0.0.1",
+      port: 5173,
+      protocol: "ws",
+    },
   },
   base: "./",
 });

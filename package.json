@@ -1,7 +1,7 @@
 {
   "name": "nextconvert",
-  "version": "0.1.11",
-  "description": "Image to Reels converter desktop app",
+  "version": "0.1.12",
+  "description": "NextConvert — Reel Stories desktop converter (Electron + FFmpeg)",
   "author": "NextConvert Team",
   "main": "dist/electron/electron/main.js",
   "scripts": {
@@ -19,7 +19,7 @@
     "dist:win": "bun run build && electron-builder --win --publish never",
     "dist:all": "bun run build && electron-builder --mac --win --publish never",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
-    "lint": "eslint app --ext .ts,.tsx"
+    "lint": "eslint \"app/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",
@@ -37,6 +37,7 @@
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/ffmpeg-static": "^5.1.0",
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
@@ -51,6 +52,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.59.2",
     "vite": "^6.0.3"
   }
 }

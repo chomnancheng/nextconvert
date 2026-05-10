@@ -40,7 +40,7 @@ function fromFile(file: File): ImageFile {
 /** Build an ImageFile from an absolute path (IPC dialog result). */
 async function fromPath(absPath: string): Promise<ImageFile> {
   const name = absPath.split(/[\\/]/).pop() ?? absPath;
-  let previewUrl = "";
+  let previewUrl: string;
   try {
     previewUrl = await window.electronAPI.imageToDataUrl(absPath);
   } catch {

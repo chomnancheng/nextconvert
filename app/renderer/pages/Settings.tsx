@@ -1,5 +1,4 @@
 import React from "react";
-import { Separator } from "@/renderer/components/ui/separator";
 import { Label } from "@/renderer/components/ui/label";
 import { Input } from "@/renderer/components/ui/input";
 import { Textarea } from "@/renderer/components/ui/textarea";
@@ -19,11 +18,13 @@ import type {
   EncoderOption,
   WatermarkPosition,
   MusicSettings,
+  VideoBgSettings,
   WatermarkSettings,
   MetadataSettings,
+  PhotoFitMode,
 } from "@/renderer/hooks/useSettings";
-import { PRESET_LABELS } from "@/renderer/hooks/useSettings";
-import { FolderOpen, Music2, AlertTriangle } from "lucide-react";
+import { PRESET_LABELS, PHOTO_FIT_LABELS } from "@/renderer/hooks/useSettings";
+import { FolderOpen, Music2, Film, AlertTriangle, ChevronDown } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -36,9 +37,12 @@ interface SettingsPanelProps {
   onQuality: (v: number) => void;
   onWatermark: (patch: Partial<WatermarkSettings>) => void;
   onMusic: (patch: Partial<MusicSettings>) => void;
+  onVideoBg: (patch: Partial<VideoBgSettings>) => void;
   onMetadata: (patch: Partial<MetadataSettings>) => void;
   onOutputDir: (v: string) => void;
   onEncoder: (v: EncoderMode) => void;
+  onPhotoFit: (v: PhotoFitMode) => void;
+  onConcurrentJobs: (v: number) => void;
   onCustomSize: (patch: { customWidth?: number; customHeight?: number }) => void;
   onResetDefaults: () => void;
   encoderOptions: EncoderOption[];
@@ -49,11 +53,60 @@ interface SettingsPanelProps {
 // Layout atoms
 // ---------------------------------------------------------------------------
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+const SETTINGS_GROUP_IDS = [
+  "settings-output",
+  "settings-encoding",
+  "settings-audio-visual",
+  "settings-watermark",
+  "settings-metadata",
+] as const;
+
+type SettingsGroupId = (typeof SETTINGS_GROUP_IDS)[number];
+
+function CollapseGroup({
+  groupId,
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  groupId: string;
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-      {children}
-    </p>
+    <div data-settings-group={groupId} className="rounded-md border border-border overflow-hidden">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`${groupId}-panel`}
+        id={`${groupId}-trigger`}
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-muted/60 transition-colors"
+      >
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+            open && "rotate-180",
+          )}
+        />
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          {title}
+        </span>
+      </button>
+      {open && (
+        <div
+          id={`${groupId}-panel`}
+          role="region"
+          aria-labelledby={`${groupId}-trigger`}
+          className="flex flex-col gap-3 border-t border-border px-2.5 pb-3 pt-2.5"
+        >
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -76,6 +129,11 @@ function Field({
   );
 }
 
+function normalizeHexOverlay(raw: string): string | null {
+  const m = /^#?([0-9A-Fa-f]{6})$/.exec(raw.trim());
+  return m ? `#${m[1].toUpperCase()}` : null;
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -87,15 +145,30 @@ export default function SettingsPanel({
   onQuality,
   onWatermark,
   onMusic,
+  onVideoBg,
   onMetadata,
   onOutputDir,
   onEncoder,
+  onPhotoFit,
+  onConcurrentJobs,
   onCustomSize,
   onResetDefaults,
   encoderOptions,
   disabled = false,
 }: SettingsPanelProps) {
-  const { watermark, music, metadata } = settings;
+  const { watermark, music, videoBg, metadata } = settings;
+
+  const overlayHex = videoBg.overlayColor ?? "#000000";
+  const [hexDraft, setHexDraft] = React.useState(overlayHex);
+  React.useEffect(() => {
+    setHexDraft(overlayHex);
+  }, [overlayHex]);
+
+  const commitHexOverlay = () => {
+    const n = normalizeHexOverlay(hexDraft);
+    if (n) onVideoBg({ overlayColor: n });
+    else setHexDraft(overlayHex);
+  };
 
   // ── IPC helpers ────────────────────────────────────────────────────────
 
@@ -104,6 +177,13 @@ export default function SettingsPanel({
     if (!dir) return;
     const result = await window.electronAPI.scanMusicFolder(dir);
     onMusic({ folderPath: dir, files: result.files, fileCount: result.count });
+  };
+
+  const handleBrowseVideoBgFolder = async () => {
+    const dir = await window.electronAPI.pickFolder();
+    if (!dir) return;
+    const result = await window.electronAPI.scanVideoBgFolder(dir);
+    onVideoBg({ folderPath: dir, files: result.files, fileCount: result.count });
   };
 
   const handleBrowseOutputDir = async () => {
@@ -130,14 +210,61 @@ export default function SettingsPanel({
     disabled && "opacity-50 pointer-events-none",
   );
 
+  const [openGroups, setOpenGroups] = React.useState<Record<SettingsGroupId, boolean>>(() =>
+    Object.fromEntries(SETTINGS_GROUP_IDS.map((id) => [id, false])) as Record<SettingsGroupId, boolean>,
+  );
+
+  const toggleGroup = (id: SettingsGroupId) => {
+    setOpenGroups((s) => ({ ...s, [id]: !s[id] }));
+  };
+
+  const collapseAllGroups = () => {
+    setOpenGroups(Object.fromEntries(SETTINGS_GROUP_IDS.map((id) => [id, false])) as Record<SettingsGroupId, boolean>);
+  };
+
+  const expandAllGroups = () => {
+    setOpenGroups(Object.fromEntries(SETTINGS_GROUP_IDS.map((id) => [id, true])) as Record<SettingsGroupId, boolean>);
+  };
+
   return (
-    <div className={cn("flex flex-col gap-5 py-1 pb-6", disabled && "select-none")}>
+    <div className={cn("flex flex-col gap-2 py-1 pb-6", disabled && "select-none")}>
+      <p className="text-[11px] text-muted-foreground -mb-1">
+        Settings save automatically when you change them.
+      </p>
 
-      {/* ── Output ─────────────────────────────────────────────────────── */}
-      <div>
-        <SectionTitle>Output</SectionTitle>
-        <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-1.5 -mt-0.5 mb-0.5">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={collapseAllGroups}
+          className={cn(
+            "rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground",
+            "hover:bg-muted hover:text-foreground transition-colors",
+            disabled && "opacity-50 pointer-events-none",
+          )}
+        >
+          Collapse all
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={expandAllGroups}
+          className={cn(
+            "rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground",
+            "hover:bg-muted hover:text-foreground transition-colors",
+            disabled && "opacity-50 pointer-events-none",
+          )}
+        >
+          Expand all
+        </button>
+      </div>
 
+      <CollapseGroup
+        groupId="settings-output"
+        title="Output"
+        open={openGroups["settings-output"]}
+        onToggle={() => toggleGroup("settings-output")}
+      >
           <Field label="Size preset" htmlFor="s-preset">
             <Select
               value={settings.preset}
@@ -220,15 +347,55 @@ export default function SettingsPanel({
             </p>
           </Field>
 
-        </div>
-      </div>
+      </CollapseGroup>
 
-      <Separator />
+      <CollapseGroup
+        groupId="settings-encoding"
+        title="Encoding"
+        open={openGroups["settings-encoding"]}
+        onToggle={() => toggleGroup("settings-encoding")}
+      >
+          <Field label="Picture layout" htmlFor="s-photofit">
+            <Select
+              value={settings.photoFit}
+              onValueChange={(v) => onPhotoFit(v as PhotoFitMode)}
+              disabled={disabled}
+            >
+              <SelectTrigger id="s-photofit" className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.entries(PHOTO_FIT_LABELS) as [PhotoFitMode, string][]).map(([value, label]) => (
+                  <SelectItem key={value} value={value} className="text-xs">{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Applies to still-image reels and to the photo over a video background.
+            </p>
+          </Field>
 
-      {/* ── Duration ───────────────────────────────────────────────────── */}
-      <div>
-        <SectionTitle>Duration</SectionTitle>
-        <div className="flex flex-col gap-3">
+          <Field label="Parallel conversions" htmlFor="s-concurrent">
+            <div className="flex items-center gap-2">
+              <Input
+                id="s-concurrent"
+                type="number"
+                min={1}
+                max={8}
+                value={settings.concurrentJobs}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!Number.isNaN(v)) onConcurrentJobs(v);
+                }}
+                className={cn(inputCls, "w-14 tabular-nums")}
+                disabled={disabled}
+              />
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">1–8 at once</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Higher uses more CPU/GPU while converting a batch.
+            </p>
+          </Field>
 
           <Field label={`Video length — ${settings.duration}s`} htmlFor="s-duration">
             <Slider
@@ -260,15 +427,14 @@ export default function SettingsPanel({
             <p className="text-[11px] text-muted-foreground">Higher = better quality, larger file</p>
           </Field>
 
-        </div>
-      </div>
+      </CollapseGroup>
 
-      <Separator />
-
-      {/* ── Music ──────────────────────────────────────────────────────── */}
-      <div>
-        <SectionTitle>Music</SectionTitle>
-        <div className="flex flex-col gap-3">
+      <CollapseGroup
+        groupId="settings-audio-visual"
+        title="Music & video background"
+        open={openGroups["settings-audio-visual"]}
+        onToggle={() => toggleGroup("settings-audio-visual")}
+      >
 
           <label className="flex cursor-pointer items-center gap-2.5">
             <input
@@ -341,15 +507,147 @@ export default function SettingsPanel({
             </>
           )}
 
-        </div>
-      </div>
+          <div className="space-y-3 border-t border-border pt-3 mt-3">
 
-      <Separator />
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <input
+              type="checkbox"
+              checked={videoBg.enabled}
+              onChange={(e) => onVideoBg({ enabled: e.target.checked })}
+              disabled={disabled}
+              className="h-4 w-4 rounded border-border accent-primary"
+            />
+            <span className="text-xs font-medium text-foreground">Enable video background</span>
+          </label>
 
-      {/* ── Watermark ──────────────────────────────────────────────────── */}
-      <div>
-        <SectionTitle>Watermark</SectionTitle>
-        <div className="flex flex-col gap-3">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Random clip from this folder as background video. That clip&apos;s audio is never used — only tracks from Music above play when Music is enabled. Framing follows <span className="font-medium text-foreground/80">Picture layout</span> in Encoding; use max % below so opaque photos don&apos;t cover all of the clip, or use 100% when you want a full-area frame.
+          </p>
+
+          {videoBg.enabled && (
+            <>
+              <Field label="Video folder">
+                <div className="flex gap-1.5">
+                  <Input
+                    value={videoBg.folderPath}
+                    readOnly
+                    placeholder="Select folder with MP4 / MOV…"
+                    className={cn(inputCls, "flex-1 font-mono truncate")}
+                  />
+                  <button type="button" onClick={handleBrowseVideoBgFolder} disabled={disabled} className={iconBtnCls}>
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </Field>
+
+              {videoBg.folderPath && (
+                <div className={cn(
+                  "flex items-start gap-2 rounded-md px-2.5 py-2 text-xs",
+                  videoBg.fileCount === 0
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-muted text-muted-foreground",
+                )}>
+                  {videoBg.fileCount === 0 ? (
+                    <>
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>No video files found. Add MP4, MOV or MKV files to this folder.</span>
+                    </>
+                  ) : (
+                    <>
+                      <Film className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {videoBg.fileCount} clip{videoBg.fileCount !== 1 ? "s" : ""}
+                        {" · "}random pick per output
+                        {" · "}looped to fill duration
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Color overlay */}
+              <Field label="Color overlay">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="color"
+                    value={overlayHex}
+                    onChange={(e) => onVideoBg({ overlayColor: e.target.value })}
+                    disabled={disabled}
+                    className={cn(
+                      "h-8 w-12 shrink-0 cursor-pointer rounded border border-border bg-background p-0.5",
+                      disabled && "opacity-50 pointer-events-none",
+                    )}
+                    title="Pick overlay colour"
+                  />
+                  <Input
+                    type="text"
+                    value={hexDraft}
+                    onChange={(e) => setHexDraft(e.target.value)}
+                    onBlur={commitHexOverlay}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitHexOverlay();
+                    }}
+                    spellCheck={false}
+                    placeholder="#000000"
+                    className={cn(inputCls, "w-28 font-mono")}
+                    disabled={disabled}
+                    aria-label="Overlay colour hex"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Wash over the video between the clip and your photo — use 6-digit hex (#RRGGBB). Set opacity below to activate.
+                </p>
+              </Field>
+
+              <Field label={`Overlay opacity — ${videoBg.overlayOpacity ?? 0}%`} htmlFor="s-vbg-opacity">
+                <Slider
+                  id="s-vbg-opacity"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={[videoBg.overlayOpacity ?? 0]}
+                  onValueChange={([v]) => onVideoBg({ overlayOpacity: v })}
+                  disabled={disabled}
+                  className={sliderCls}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {(videoBg.overlayOpacity ?? 0) === 0
+                    ? "0% — overlay disabled"
+                    : `${videoBg.overlayOpacity ?? 0}% opacity over the video background`}
+                </p>
+              </Field>
+
+              <Field
+                label={`Photo on video — max ${videoBg.overlayImageMaxPercent ?? 100}% of frame`}
+                htmlFor="s-vbg-photo-pct"
+              >
+                <Slider
+                  id="s-vbg-photo-pct"
+                  min={50}
+                  max={100}
+                  step={1}
+                  value={[videoBg.overlayImageMaxPercent ?? 100]}
+                  onValueChange={([v]) => onVideoBg({ overlayImageMaxPercent: v })}
+                  disabled={disabled}
+                  className={sliderCls}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Lower = smaller photo, more visible B-roll around the edges. 100% = photo may cover the whole frame if it matches the reel aspect ratio.
+                </p>
+              </Field>
+            </>
+          )}
+
+          </div>
+
+      </CollapseGroup>
+
+      <CollapseGroup
+        groupId="settings-watermark"
+        title="Watermark"
+        open={openGroups["settings-watermark"]}
+        onToggle={() => toggleGroup("settings-watermark")}
+      >
 
           <label className="flex cursor-pointer items-center gap-2.5">
             <input
@@ -440,15 +738,14 @@ export default function SettingsPanel({
             </>
           )}
 
-        </div>
-      </div>
+      </CollapseGroup>
 
-      <Separator />
-
-      {/* ── Metadata ───────────────────────────────────────────────────── */}
-      <div>
-        <SectionTitle>Metadata</SectionTitle>
-        <div className="flex flex-col gap-3">
+      <CollapseGroup
+        groupId="settings-metadata"
+        title="Metadata"
+        open={openGroups["settings-metadata"]}
+        onToggle={() => toggleGroup("settings-metadata")}
+      >
 
           <Field label="Title" htmlFor="s-meta-title">
             <Input
@@ -484,12 +781,9 @@ export default function SettingsPanel({
             />
           </Field>
 
-        </div>
-      </div>
+      </CollapseGroup>
 
-      <Separator />
-
-      <div className="pt-1">
+      <div className="border-t border-border pt-3">
         <button
           type="button"
           onClick={onResetDefaults}

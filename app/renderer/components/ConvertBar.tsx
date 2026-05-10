@@ -94,57 +94,39 @@ export default function ConvertBar({
               style={{ width: `${progress}%` }}
             />
           </div>
-          {isRunning && (
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">{currentLabel}</p>
-              <p className="text-xs text-muted-foreground tabular-nums">{progress}%</p>
-            </div>
+          {isRunning && currentLabel && (
+            <p className="text-xs text-muted-foreground tabular-nums">{currentLabel}</p>
           )}
         </div>
       )}
 
       {/* ── Success notice ── */}
       {isDone && outputPaths.length > 0 && (
-        <div className="flex flex-col gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 dark:border-green-900 dark:bg-green-950/40">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-            <p className="text-xs font-medium text-green-800 dark:text-green-300">
-              {outputPaths.length === 1
-                ? "Done! 1 video saved."
-                : `Done! ${outputPaths.length} videos saved.`}
-            </p>
-            <button
-              type="button"
-              onClick={() => showInFinder(outputPaths[0])}
-              className={cn(
-                "ml-auto shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1",
-                "text-[11px] font-medium text-green-700 dark:text-green-300",
-                "hover:bg-green-100 dark:hover:bg-green-900/60 transition-colors",
-              )}
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              Show in Finder
-            </button>
-          </div>
-          {/* List each output if multiple */}
-          {outputPaths.length > 1 && (
-            <ul className="flex flex-col gap-0.5 pl-6">
-              {outputPaths.map((p) => (
-                <li key={p}
-                  className="truncate text-[11px] font-mono text-green-700/80 dark:text-green-400/80 cursor-pointer hover:underline"
-                  onClick={() => showInFinder(p)}
-                >
-                  {p.split(/[\\/]/).pop()}
-                </li>
-              ))}
-            </ul>
-          )}
-          {errorMessage && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-400 pl-6">
-              {errorMessage}
-            </p>
-          )}
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900 dark:bg-green-950/40">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+          <p className="text-xs font-medium text-green-800 dark:text-green-300">
+            {outputPaths.length === 1
+              ? "Done — 1 video saved."
+              : `Done — ${outputPaths.length} videos saved.`}
+          </p>
+          <button
+            type="button"
+            onClick={() => showInFinder(outputPaths[0])}
+            className={cn(
+              "ml-auto shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1",
+              "text-[11px] font-medium text-green-700 dark:text-green-300",
+              "hover:bg-green-100 dark:hover:bg-green-900/60 transition-colors",
+            )}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            Show in Finder
+          </button>
         </div>
+      )}
+      {isDone && outputPaths.length > 0 && errorMessage && (
+        <p className="text-[11px] text-amber-700 dark:text-amber-400">
+          {errorMessage}
+        </p>
       )}
 
       {/* ── Error notice ── */}

@@ -11,7 +11,6 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import type { ChildProcess } from "child_process";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 let ffmpegBin: string = "";
 
 const getFfmpegPath = (): string => {
@@ -38,6 +37,8 @@ console.log("[ffmpeg] binary:", ffmpegBin);
 
 export type SizePreset = "reel" | "story" | "square" | "custom";
 export type EncoderMode = "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
+/** How photos are framed: cover = fill crop, contain = shrink with padding (still) / inset (overlay), stretch = distort to box. */
+export type PhotoFitMode = "cover" | "contain" | "stretch";
 
 const PRESETS: Record<Exclude<SizePreset, "custom">, [number, number]> = {
   reel:   [1080, 1920],
@@ -60,10 +61,41 @@ function resolvePresetSize(
 }
 
 export interface ConvertOptions {
-  /** Single input image path */
+  /** Single input file path — an image (looped) or a video background. */
   input: string;
+  /** When true, `input` is treated as a video background (looped); otherwise a still image. */
+  inputIsVideo?: boolean;
+  /**
+   * Optional still image to overlay centered on top of a video background.
+   * Only used when `inputIsVideo === true`.
+   */
+  overlayImagePath?: string;
+  /**
+   * Hex color (e.g. "#000000") for a semi-transparent color wash drawn between
+   * the video background and the image overlay.  Only used when `inputIsVideo === true`.
+   */
+  overlayColor?: string;
+  /**
+   * Opacity of the color wash, 0–100.  0 = invisible, 100 = fully opaque.
+   * Only applied when `overlayColor` is set and `inputIsVideo === true`.
+   */
+  overlayOpacity?: number;
+  /**
+   * Max size of the PNG on the B-roll, as % of output width/height (50–100).
+   * Below 100% leaves a visible border of video around the photo (opaque PNGs).
+   * Default 100.
+   */
+  overlayImageMaxPercent?: number;
+  /** cover | contain | stretch — still reel and PNG-on-B-roll overlays. */
+  photoFit?: PhotoFitMode;
   /** Absolute path to output mp4. If set, overrides batchDir logic entirely. */
   outputPath?: string;
+  /**
+   * Override the output file's base name (without extension).
+   * Useful when the technical `input` is a video but the logical "content" is the image.
+   * Only applied when `outputPath` is not set.
+   */
+  outputNameBase?: string;
   /**
    * Subdirectory name for this batch, e.g. "converted-2026-05-04-1430".
    * Created next to each input image. Defaults to "converted" if omitted.
@@ -72,7 +104,7 @@ export interface ConvertOptions {
   preset?: SizePreset;
   customWidth?: number;
   customHeight?: number;
-  /** 0–100, default 80 */
+  /** 0–100, default 80 — maps to encoder CRF-style quality (smaller files than legacy mapping) */
   quality?: number;
   /** Total video duration in seconds, default 59 */
   duration?: number;
@@ -88,6 +120,13 @@ export interface ConvertOptions {
 export interface ConvertOptionsLegacy {
   inputs?: string[];
   input?: string;
+  inputIsVideo?: boolean;
+  overlayImagePath?: string;
+  overlayColor?: string;
+  overlayOpacity?: number;
+  overlayImageMaxPercent?: number;
+  photoFit?: PhotoFitMode;
+  outputNameBase?: string;
   outputPath?: string;
   batchDir?: string;
   preset?: SizePreset;
@@ -105,6 +144,8 @@ export interface ConvertOptionsLegacy {
 export interface ConvertResult {
   ok: boolean;
   outputPath?: string;
+  /** File size of output mp4 after successful encode */
+  outputSizeBytes?: number;
   error?: string;
 }
 
@@ -118,7 +159,9 @@ const cancelledJobs = new Set<string>();
 
 function qualityToCrf(quality: number): number {
   const q = Math.max(0, Math.min(100, quality));
-  return Math.round(51 - (q / 100) * 51);
+  // Previous map (0→CRF 51, 100→CRF 0) made defaults land around CRF 8–14 — huge 1080p files.
+  // Target a social-style range: high quality ≈ CRF 18, compact ≈ CRF 35 (libx264 / similar).
+  return Math.round(35 - (q / 100) * 17);
 }
 
 function scaleFilter(w: number, h: number): string {
@@ -127,6 +170,16 @@ function scaleFilter(w: number, h: number): string {
     `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,` +
     `setsar=1`
   );
+}
+
+function stillImageVF(w: number, h: number, fit: PhotoFitMode = "cover"): string {
+  if (fit === "stretch") {
+    return `scale=${w}:${h},setsar=1`;
+  }
+  if (fit === "cover") {
+    return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
+  }
+  return scaleFilter(w, h);
 }
 
 /**
@@ -144,15 +197,16 @@ function resolveOutputPath(
   inputPath: string,
   outputPath: string | undefined,
   batchDir: string,
+  outputNameBase?: string,
 ): string {
   if (outputPath) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     return outputPath;
   }
-  // baseDir is the directory of the input image
+  // baseDir is the directory of the input file
   const dir = path.join(path.dirname(inputPath), batchDir);
   fs.mkdirSync(dir, { recursive: true });
-  const base = path.basename(inputPath, path.extname(inputPath));
+  const base = outputNameBase ?? path.basename(inputPath, path.extname(inputPath));
   return path.join(dir, `${base}_reel.mp4`);
 }
 
@@ -231,6 +285,10 @@ export async function convertOne(
 ): Promise<ConvertResult> {
   const {
     input,
+    inputIsVideo = false,
+    overlayImagePath,
+    overlayColor,
+    overlayOpacity = 0,
     preset = "reel",
     customWidth = 1080,
     customHeight = 1920,
@@ -240,6 +298,9 @@ export async function convertOne(
     audioVolume = 80,
     batchDir = "converted",
     encoder = "auto",
+    outputNameBase,
+    overlayImageMaxPercent: rawOverlayMaxPct,
+    photoFit = "cover",
   } = options;
 
   if (!input?.trim()) {
@@ -248,43 +309,128 @@ export async function convertOne(
 
   const [w, h] = resolvePresetSize(preset, customWidth, customHeight);
   const crf = qualityToCrf(quality);
-  const outputPath = resolveOutputPath(input, options.outputPath, batchDir);
+  const outputPath = resolveOutputPath(input, options.outputPath, batchDir, outputNameBase);
   const vol = Math.max(0, Math.min(100, audioVolume)) / 100;
   const videoEncoder = resolveVideoEncoder(encoder);
 
-  const args: string[] = [
-    // Video input — loop the single image
-    "-loop", "1",
-    "-i", input,
-  ];
+  /** PNG is scaled relative to frame (50–100%). At 100% + cover fit, photo fills the slot. */
+  const overlayMaxFrac =
+    inputIsVideo
+      ? Math.max(0.5, Math.min(1, (rawOverlayMaxPct ?? 100) / 100))
+      : 1;
 
-  if (audioPath?.trim()) {
-    // Audio input — loop so short tracks cover the full duration
-    args.push("-stream_loop", "-1", "-i", audioPath);
-  }
+  // Normalise color overlay params
+  const hasColorOverlay =
+    inputIsVideo &&
+    !!overlayColor?.trim() &&
+    overlayOpacity > 0;
+  // FFmpeg color format: 0xRRGGBB@alpha  (alpha 0.0–1.0)
+  const fmtColor = hasColorOverlay
+    ? `0x${overlayColor!.replace("#", "")}@${(Math.min(100, overlayOpacity) / 100).toFixed(2)}`
+    : "";
 
-  args.push(
-    "-vf", scaleFilter(w, h),
-    "-c:v", videoEncoder,
-    "-crf", String(crf),
-    "-preset", "fast",
-    "-pix_fmt", "yuv420p",
-  );
+  const args: string[] = [];
 
-  if (audioPath?.trim()) {
+  if (inputIsVideo) {
+    // ── Video background mode ──────────────────────────────────────────────
+    // Input 0: looped B-roll — we never map 0:a; background stays muted.
+    args.push("-stream_loop", "-1", "-i", input);
+
+    const hasOverlay = !!overlayImagePath?.trim();
+    if (hasOverlay) {
+      args.push("-loop", "1", "-i", overlayImagePath!);
+    }
+
+    const hasMusic = !!audioPath?.trim();
+    if (hasMusic) {
+      args.push("-stream_loop", "-1", "-i", audioPath!);
+    }
+    const musicInputIndex = hasOverlay ? 2 : 1;
+
+    // filter_complex: valid [bg] chain, then PNG with alpha on top (transparent areas show video).
+    let fc = `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
+    if (hasColorOverlay) {
+      fc += `[__bg0];[__bg0]drawbox=x=0:y=0:w=iw:h=ih:color=${fmtColor}:t=fill[bg]`;
+    } else {
+      fc += `[bg]`;
+    }
+
+    if (hasOverlay) {
+      const maxW = Math.max(2, Math.floor(w * overlayMaxFrac));
+      const maxH = Math.max(2, Math.floor(h * overlayMaxFrac));
+      let overlayScale: string;
+      if (photoFit === "stretch") {
+        overlayScale = `[1:v]scale=${maxW}:${maxH},setsar=1,format=yuva420p[img]`;
+      } else if (photoFit === "cover") {
+        overlayScale =
+          `[1:v]scale=${maxW}:${maxH}:force_original_aspect_ratio=increase,crop=${maxW}:${maxH},setsar=1,format=yuva420p[img]`;
+      } else {
+        overlayScale =
+          `[1:v]scale=${maxW}:${maxH}:force_original_aspect_ratio=decrease,setsar=1,format=yuva420p[img]`;
+      }
+      fc += `;${overlayScale};[bg][img]overlay=(W-w)/2:(H-h)/2:format=auto[v]`;
+    } else {
+      fc += `;[bg]format=yuv420p[v]`;
+    }
+
+    args.push("-filter_complex", fc, "-map", "[v]");
+
     args.push(
-      "-c:a", "aac",
-      "-b:a", "192k",
-      "-af", `volume=${vol.toFixed(3)}`,
-      // Stop at video duration — don't let looped audio extend beyond it
-      "-t", String(duration),
-      "-shortest",
+      "-c:v", videoEncoder,
+      "-crf", String(crf),
+      "-preset", "fast",
+      "-pix_fmt", "yuv420p",
     );
-  } else {
+
+    // Audio: map only the music input — never input 0 (B-roll stays muted).
+    if (hasMusic) {
+      args.push(
+        "-map", `${musicInputIndex}:a`,
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-af", `volume=${vol.toFixed(3)}`,
+      );
+    }
+
     args.push("-t", String(duration));
+
+  } else {
+    // ── Static image mode ─────────────────────────────────────────────────
+    // Input 0: looped still image
+    args.push("-loop", "1", "-i", input);
+
+    const hasAudio = !!audioPath?.trim();
+    // Input 1 (optional): looped audio
+    if (hasAudio) {
+      args.push("-stream_loop", "-1", "-i", audioPath!);
+    }
+
+    args.push(
+      "-vf", stillImageVF(w, h, photoFit),
+      "-c:v", videoEncoder,
+      "-crf", String(crf),
+      "-preset", "fast",
+      "-pix_fmt", "yuv420p",
+    );
+
+    if (hasAudio) {
+      // Explicit stream maps so FFmpeg never silently drops the audio track
+      args.push(
+        "-map", "0:v",
+        "-map", "1:a",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-af", `volume=${vol.toFixed(3)}`,
+      );
+    }
+
+    args.push("-t", String(duration));
+    if (hasAudio) args.push("-shortest");
   }
 
   args.push("-movflags", "+faststart", "-y", outputPath);
+
+  console.log("[ffmpeg] job", jobId, "args:", args.join(" "));
 
   const { code, stderr } = await runFfmpeg(jobId, args, duration, onProgress);
 
@@ -295,7 +441,14 @@ export async function convertOne(
     return { ok: false, error: `FFmpeg exited with code ${code}.\n${stderr.slice(-1500)}` };
   }
 
-  return { ok: true, outputPath };
+  let outputSizeBytes: number | undefined;
+  try {
+    outputSizeBytes = fs.statSync(outputPath).size;
+  } catch {
+    /* ignore */
+  }
+
+  return { ok: true, outputPath, outputSizeBytes };
 }
 
 /**
@@ -315,6 +468,13 @@ export async function convert(
   return convertOne(
     {
       input,
+      inputIsVideo: raw.inputIsVideo,
+      overlayImagePath: raw.overlayImagePath,
+      overlayColor: raw.overlayColor,
+      overlayOpacity: raw.overlayOpacity,
+      overlayImageMaxPercent: raw.overlayImageMaxPercent,
+      photoFit: raw.photoFit,
+      outputNameBase: raw.outputNameBase,
       outputPath: raw.outputPath,
       batchDir: raw.batchDir,
       preset: raw.preset,

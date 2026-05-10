@@ -1,0 +1,38 @@
+---
+description: NextConvert Reel Stories product context — UI modes, FFmpeg, settings persistence (read before changing reels, IPC, or settings)
+globs:
+  - AGENTS.md
+  - docs/**/*
+  - app/**/*.ts
+  - app/**/*.tsx
+alwaysApply: false
+---
+
+# NextConvert — quick context for agents
+
+**Product name in UI:** main tab label is **“Reel Stories”** (`Layout.tsx` → `TabsContent` **`reel-stories`**).
+
+**Modes (`ImageToReels.tsx`):**
+
+- **By Images:** drop zone + `MediaTable` + `ConvertBar`; calls `run(files, "by-images", settings)`.
+- **By Paragraph:** placeholder only (workflow TODO). **Same `SettingsPanel` on the right** — do not duplicate settings logic per mode unless the feature needs it later.
+
+**Settings UI (`pages/Settings.tsx`):**
+
+- Sections are **`CollapseGroup`** accordions controlled from panel state (**all closed by default**).
+- **Collapse all / Expand all** sync every group id in `SETTINGS_GROUP_IDS`.
+- **Autosave:** `useSettings.persistSettings()` → `saveAllSettings` including **`videoBgOverlay`** (color, opacity, `overlayImageMaxPercent`), **`photoFit`**, **`concurrentJobs`**, plus music/output/watermark/etc. **`videobg:*`** / **`music:*`** still restore folder lists.
+
+**Conversion (`hooks/useConvert.ts`):**
+
+- Parallel jobs: **`settings.concurrentJobs`** (1–8, default **4**), **not** a hard-coded pool size.
+- Passes **`photoFit`** and video-bg overlays to IPC. **Clear all** on the table triggers **`clearFiles()` + `reset()`** so “Done — N videos” state clears.
+
+**FFmpeg (`app/lib/ffmpeg.ts`):**
+
+- **Quality → CRF** uses a **social-sized range (~18–35)** at UI 100–0; extremes are **not** CRF 0/51 anymore (avoid 100 MB+ for short reels).
+- **AAC:** **128k** background music bitrate.
+- **Photo layout:** **`PhotoFitMode`** `'cover' | 'contain' | 'stretch'` for still reels and PNG-on-B-roll; default cover.
+- **`file:getSizes`:** main IPC; renderer uses it for MediaTable source/output sizes.
+
+**When stuck:** Prefer **`AGENTS.md`** (“Reel Stories & conversion pipeline”) as the authoritative technical summary alongside this rule.

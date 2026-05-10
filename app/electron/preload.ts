@@ -11,6 +11,8 @@ export interface MusicSavedFolder extends MusicScanResult {
   enabled: boolean;
 }
 
+export type SavedPhotoFit = "cover" | "contain" | "stretch";
+
 export interface SavedSettings {
   preset: "reel" | "story" | "square" | "custom";
   customWidth: number;
@@ -37,6 +39,13 @@ export interface SavedSettings {
   };
   outputDir: string;
   encoder: "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
+  photoFit?: SavedPhotoFit;
+  concurrentJobs?: number;
+  videoBgOverlay?: {
+    overlayColor: string;
+    overlayOpacity: number;
+    overlayImageMaxPercent: number;
+  };
 }
 
 export interface EncoderOption {
@@ -67,6 +76,8 @@ export interface ElectronAPI {
   onConvertProgress: (cb: (jobId: string, percent: number) => void) => () => void;
   showItem: (filePath: string) => Promise<void>;
   imageToDataUrl: (filePath: string) => Promise<string>;
+  /** Byte size per absolute path for existing files */
+  getFileSizes: (paths: string[]) => Promise<Record<string, number>>;
   /** Get the absolute filesystem path for a File object (works with contextIsolation). */
   getFilePath: (file: File) => string;
   /** Scan folder for audio files (mp3 + mp4), persist path + enabled state. */
@@ -75,6 +86,12 @@ export interface ElectronAPI {
   getSavedMusicFolder: () => Promise<MusicSavedFolder>;
   /** Persist music enabled state. */
   saveMusicEnabled: (enabled: boolean) => Promise<void>;
+  /** Scan folder for video background clips, persist path. */
+  scanVideoBgFolder: (dir: string) => Promise<MusicScanResult>;
+  /** Return last-used video background folder + enabled state. */
+  getSavedVideoBgFolder: () => Promise<MusicSavedFolder>;
+  /** Persist video background enabled state. */
+  saveVideoBgEnabled: (enabled: boolean) => Promise<void>;
   /** Persist output directory. */
   saveOutputDir: (dir: string) => Promise<void>;
   saveGpuEncoder: (encoder: string) => Promise<void>;
@@ -112,6 +129,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   showItem: (filePath: string) => ipcRenderer.invoke("shell:showItem", filePath),
   imageToDataUrl: (filePath: string) => ipcRenderer.invoke("image:toDataUrl", filePath),
+  getFileSizes: (paths: string[]) => ipcRenderer.invoke("file:getSizes", paths),
 
   // webUtils.getPathForFile is the official Electron API for getting file paths
   // in contextIsolation renderers — replaces the non-standard File.path property.
@@ -126,6 +144,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   scanMusicFolder: (dir: string) => ipcRenderer.invoke("music:scanFolder", dir),
   getSavedMusicFolder: () => ipcRenderer.invoke("music:getSavedFolder"),
   saveMusicEnabled: (enabled: boolean) => ipcRenderer.invoke("music:saveEnabled", enabled),
+  scanVideoBgFolder: (dir: string) => ipcRenderer.invoke("videobg:scanFolder", dir),
+  getSavedVideoBgFolder: () => ipcRenderer.invoke("videobg:getSavedFolder"),
+  saveVideoBgEnabled: (enabled: boolean) => ipcRenderer.invoke("videobg:saveEnabled", enabled),
   saveOutputDir: (dir: string) => ipcRenderer.invoke("settings:saveOutputDir", dir),
   saveGpuEncoder: (encoder: string) => ipcRenderer.invoke("settings:saveGpuEncoder", encoder),
   saveAllSettings: (settings: SavedSettings) => ipcRenderer.invoke("settings:saveAll", settings),
