@@ -68,6 +68,17 @@ export interface UpdateDownloadResult {
   error?: string;
 }
 
+export interface TemplateRecord {
+  id: string;
+  name: string;
+  profileImage: string;
+  profileName: string;
+  postDate: string;
+  readMoreText: string;
+  commentLink: string;
+  createdAt: string;
+}
+
 export interface ElectronAPI {
   openFiles: () => Promise<string[]>;
   openFolder: () => Promise<string[]>;
@@ -108,6 +119,13 @@ export interface ElectronAPI {
   toggleMaximizeWindow: () => Promise<boolean>;
   isWindowMaximized: () => Promise<boolean>;
   closeWindow: () => Promise<void>;
+  /** Templates CRUD */
+  getTemplates: () => Promise<TemplateRecord[]>;
+  saveTemplates: (templates: TemplateRecord[]) => Promise<void>;
+  /** Paragraph mode: save rendered PNG to temp dir, returns absolute path */
+  saveParagraphTempImage: (base64Data: string, filename: string) => Promise<string>;
+  /** Remove the paragraph temp dir after conversion */
+  cleanupParagraphTemp: () => Promise<void>;
 }
 
 contextBridge.exposeInMainWorld("electronAPI", {
@@ -162,4 +180,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   toggleMaximizeWindow: () => ipcRenderer.invoke("window:maximizeToggle"),
   isWindowMaximized: () => ipcRenderer.invoke("window:isMaximized"),
   closeWindow: () => ipcRenderer.invoke("window:close"),
+  getTemplates: () => ipcRenderer.invoke("templates:getAll"),
+  saveTemplates: (templates) => ipcRenderer.invoke("templates:saveAll", templates),
+  saveParagraphTempImage: (base64Data: string, filename: string) =>
+    ipcRenderer.invoke("paragraph:saveTempImage", base64Data, filename),
+  cleanupParagraphTemp: () => ipcRenderer.invoke("paragraph:cleanupTemp"),
 } satisfies ElectronAPI);

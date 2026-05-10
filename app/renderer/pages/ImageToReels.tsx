@@ -8,6 +8,7 @@ import { ScrollArea } from "@/renderer/components/ui/scroll-area";
 import { useImageFiles } from "@/renderer/hooks/useImageFiles";
 import { useConvert } from "@/renderer/hooks/useConvert";
 import { useSettings } from "@/renderer/hooks/useSettings";
+import ParagraphTab from "@/renderer/features/paragraph-tab/ParagraphTab";
 
 export type ReelStoryMode = "images" | "paragraph";
 
@@ -162,18 +163,7 @@ export default function ImageToReels() {
             </div>
           </>
         ) : (
-          <>
-            <ScrollArea className="flex-1 pr-2">
-              <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-border px-6 py-10 text-center">
-                <p className="max-w-sm text-sm text-muted-foreground leading-relaxed">
-                  Build reels from paragraph text — this workflow will be wired up later. Encoder, size, duration, and audio options match <span className="font-medium text-foreground/90">By Images</span> (same panel on the right).
-                </p>
-              </div>
-            </ScrollArea>
-            <div className="shrink-0 border-t border-border pt-3 text-center">
-              <p className="text-[11px] text-muted-foreground">Convert from paragraph — coming soon</p>
-            </div>
-          </>
+          <ParagraphTab settings={settings} />
         )}
       </div>
 

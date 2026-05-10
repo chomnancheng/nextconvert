@@ -106,6 +106,17 @@ interface UpdateDownloadResult {
   error?: string;
 }
 
+interface TemplateRecord {
+  id: string;
+  name: string;
+  profileImage: string;
+  profileName: string;
+  postDate?: string;
+  readMoreText: string;
+  commentLink: string;
+  createdAt: string;
+}
+
 interface Window {
   electronAPI: {
     openFiles: () => Promise<string[]>;
@@ -137,5 +148,9 @@ interface Window {
     toggleMaximizeWindow: () => Promise<boolean>;
     isWindowMaximized: () => Promise<boolean>;
     closeWindow: () => Promise<void>;
+    getTemplates: () => Promise<TemplateRecord[]>;
+    saveTemplates: (templates: TemplateRecord[]) => Promise<void>;
+    saveParagraphTempImage: (base64Data: string, filename: string) => Promise<string>;
+    cleanupParagraphTemp: () => Promise<void>;
   };
 }

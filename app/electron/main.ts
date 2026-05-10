@@ -574,6 +574,36 @@ app.whenReady().then(() => {
     storeSet("gpuEncoder", encoder);
   });
 
+  // ── Templates ─────────────────────────────────────────────────────────────
+
+  ipcMain.handle("templates:getAll", () => {
+    return storeGet<object[]>("templates", []);
+  });
+
+  ipcMain.handle("templates:saveAll", (_event, templates: object[]) => {
+    storeSet("templates", templates);
+  });
+
+  // ── Paragraph temp images ─────────────────────────────────────────────────
+
+  ipcMain.handle(
+    "paragraph:saveTempImage",
+    (_event, base64Data: string, filename: string) => {
+      const tempDir = path.join(os.tmpdir(), "nextconvert-paragraph");
+      fs.mkdirSync(tempDir, { recursive: true });
+      const filePath = path.join(tempDir, filename);
+      fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+      return filePath;
+    },
+  );
+
+  ipcMain.handle("paragraph:cleanupTemp", () => {
+    const tempDir = path.join(os.tmpdir(), "nextconvert-paragraph");
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  });
+
   // ── FFmpeg ────────────────────────────────────────────────────────────────
 
   ipcMain.handle("convert:run", async (_event, jobId: string, options: ConvertOptionsLegacy) => {
