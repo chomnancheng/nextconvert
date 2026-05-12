@@ -429,10 +429,6 @@ function loadDevRenderer(win: BrowserWindow): void {
     });
 }
 
-function rendererIndexPath(): string {
-  return path.join(__dirname, "../../renderer/index.html");
-}
-
 function isFileUrl(url: string): boolean {
   try {
     return new URL(url).protocol === "file:";
@@ -442,23 +438,13 @@ function isFileUrl(url: string): boolean {
 }
 
 function attachPackagedNavigationGuards(win: BrowserWindow): void {
-  const loadRendererIndex = () => {
-    if (!win.isDestroyed()) void win.loadFile(rendererIndexPath());
-  };
-
-  // Block all file:// navigations — Clerk's post-sign-in redirect must not navigate
-  // to a file:// URL. With hash routing it should never need to, but guard anyway.
+  // Clerk redirects to "/" after sign-in which resolves to file:/// in a packaged app.
+  // Just block the navigation — Clerk's auth state change re-renders <Show when="signed-in">
+  // without needing a page reload, which would race against session restore.
   win.webContents.on("will-navigate", (event, url) => {
     if (!isFileUrl(url)) return;
     event.preventDefault();
-    console.warn("[main] Blocked file:// navigation, reloading renderer index:", url);
-    loadRendererIndex();
-  });
-
-  win.webContents.on("did-fail-load", (_event, _code, _description, validatedURL, isMainFrame) => {
-    if (!isMainFrame || !isFileUrl(validatedURL)) return;
-    console.warn("[main] file:// load failed; reloading renderer index:", validatedURL);
-    loadRendererIndex();
+    console.warn("[main] Blocked file:// navigation:", url);
   });
 }
 
@@ -488,7 +474,7 @@ function createWindow() {
     loadDevRenderer(win);
   } else {
     attachPackagedNavigationGuards(win);
-    void win.loadFile(rendererIndexPath());
+    void win.loadFile(path.join(__dirname, "../../renderer/index.html"));
   }
 
   return win;
