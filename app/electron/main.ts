@@ -429,6 +429,38 @@ function loadDevRenderer(win: BrowserWindow): void {
     });
 }
 
+function rendererIndexPath(): string {
+  return path.join(__dirname, "../../renderer/index.html");
+}
+
+function isBareFileRoot(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "file:" && (parsed.pathname === "/" || parsed.pathname === "");
+  } catch {
+    return false;
+  }
+}
+
+function attachPackagedNavigationGuards(win: BrowserWindow): void {
+  const loadRendererIndex = () => {
+    if (!win.isDestroyed()) void win.loadFile(rendererIndexPath());
+  };
+
+  win.webContents.on("will-navigate", (event, url) => {
+    if (!isBareFileRoot(url)) return;
+    event.preventDefault();
+    console.warn("[main] Blocked bare file:// navigation; reloading renderer index.");
+    loadRendererIndex();
+  });
+
+  win.webContents.on("did-fail-load", (_event, _code, _description, validatedURL, isMainFrame) => {
+    if (!isMainFrame || !isBareFileRoot(validatedURL)) return;
+    console.warn("[main] Bare file:// load failed; reloading renderer index.");
+    loadRendererIndex();
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -454,7 +486,8 @@ function createWindow() {
   if (isDev) {
     loadDevRenderer(win);
   } else {
-    void win.loadFile(path.join(__dirname, "../../renderer/index.html"));
+    attachPackagedNavigationGuards(win);
+    void win.loadFile(rendererIndexPath());
   }
 
   return win;
