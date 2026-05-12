@@ -2,6 +2,18 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+function requireBuildEnv() {
+  if (process.env.NODE_ENV === "production" || process.argv.includes("build")) {
+    const missing = ["VITE_CLERK_PUBLISHABLE_KEY", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"]
+      .filter((k) => !process.env[k]?.trim());
+    if (missing.length) {
+      throw new Error(`Missing required build env vars: ${missing.join(", ")}`);
+    }
+  }
+}
+
+requireBuildEnv();
+
 export default defineConfig({
   root: "app/renderer",
   envDir: __dirname,
