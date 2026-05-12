@@ -433,10 +433,9 @@ function rendererIndexPath(): string {
   return path.join(__dirname, "../../renderer/index.html");
 }
 
-function isBareFileRoot(url: string): boolean {
+function isFileUrl(url: string): boolean {
   try {
-    const parsed = new URL(url);
-    return parsed.protocol === "file:" && (parsed.pathname === "/" || parsed.pathname === "");
+    return new URL(url).protocol === "file:";
   } catch {
     return false;
   }
@@ -447,16 +446,18 @@ function attachPackagedNavigationGuards(win: BrowserWindow): void {
     if (!win.isDestroyed()) void win.loadFile(rendererIndexPath());
   };
 
+  // Block all file:// navigations — Clerk's post-sign-in redirect must not navigate
+  // to a file:// URL. With hash routing it should never need to, but guard anyway.
   win.webContents.on("will-navigate", (event, url) => {
-    if (!isBareFileRoot(url)) return;
+    if (!isFileUrl(url)) return;
     event.preventDefault();
-    console.warn("[main] Blocked bare file:// navigation; reloading renderer index.");
+    console.warn("[main] Blocked file:// navigation, reloading renderer index:", url);
     loadRendererIndex();
   });
 
   win.webContents.on("did-fail-load", (_event, _code, _description, validatedURL, isMainFrame) => {
-    if (!isMainFrame || !isBareFileRoot(validatedURL)) return;
-    console.warn("[main] Bare file:// load failed; reloading renderer index.");
+    if (!isMainFrame || !isFileUrl(validatedURL)) return;
+    console.warn("[main] file:// load failed; reloading renderer index:", validatedURL);
     loadRendererIndex();
   });
 }

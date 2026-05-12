@@ -8,7 +8,6 @@ import { type CSSProperties, useEffect, useState } from "react";
 
 const clerkEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim());
 const authRequired = import.meta.env.PROD;
-const appUrl = window.location.href.split("#")[0];
 
 function MissingAuthConfig() {
   return (
@@ -209,7 +208,7 @@ export default function Layout() {
                   Reel Stories and conversion run only after you sign in with your account.
                 </p>
               </div>
-              <SignIn fallbackRedirectUrl={appUrl} routing="hash" />
+              <SignIn fallbackRedirectUrl="/" routing="hash" />
             </main>
           </Show>
           <Show when="signed-in">
