@@ -7,6 +7,22 @@ import ImageToReels from "@/renderer/pages/ImageToReels";
 import { type CSSProperties, useEffect, useState } from "react";
 
 const clerkEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim());
+const authRequired = import.meta.env.PROD;
+
+function MissingAuthConfig() {
+  return (
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 overflow-auto px-6 py-10 text-center">
+      <Film className="h-14 w-14 text-destructive" aria-hidden />
+      <div className="max-w-md space-y-2">
+        <h1 className="text-xl font-semibold tracking-tight">Authentication is not configured</h1>
+        <p className="text-sm text-muted-foreground">
+          This packaged build is missing the Clerk publishable key, so sign-in cannot start. Rebuild the installer with
+          VITE_CLERK_PUBLISHABLE_KEY set.
+        </p>
+      </div>
+    </main>
+  );
+}
 
 export default function Layout() {
   const [isChecking, setIsChecking] = useState(true);
@@ -178,8 +194,10 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Main: full app when Clerk off or signed in; sign-in gate when Clerk on and signed out */}
-      {clerkEnabled ? (
+      {/* Main: packaged builds require Clerk; local dev can still run without auth env. */}
+      {authRequired && !clerkEnabled ? (
+        <MissingAuthConfig />
+      ) : clerkEnabled ? (
         <>
           <Show when="signed-out">
             <main className="flex flex-1 flex-col items-center justify-center gap-6 overflow-auto px-6 py-10 text-center">
