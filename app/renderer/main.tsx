@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { ClerkProvider } from "@clerk/react";
 import App from "./App";
 import "./globals.css";
 
@@ -17,9 +18,17 @@ if (!window.electronAPI) {
     "(<code>bun run dev</code> runs <code>tsc</code> before Electron) and check the terminal for preload errors." +
     "</p></div>";
 } else {
+  const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
+  const app = <App />;
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
-      <App />
+      {clerkKey ? (
+        <ClerkProvider afterSignOutUrl="/" publishableKey={clerkKey}>
+          {app}
+        </ClerkProvider>
+      ) : (
+        app
+      )}
     </React.StrictMode>,
   );
 }

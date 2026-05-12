@@ -12,7 +12,7 @@ import ParagraphTab from "@/renderer/features/paragraph-tab/ParagraphTab";
 
 export type ReelStoryMode = "images" | "paragraph";
 
-export default function ImageToReels() {
+export default function ImageToReels({ isAdmin = false }: { isAdmin?: boolean }) {
   const { files, addPaths, removeFile, clearFiles } = useImageFiles();
   const { status, fileProgress, outputPaths, errorMessage, run, reset, stop } = useConvert();
   const {
@@ -114,18 +114,20 @@ export default function ImageToReels() {
           >
             By Images
           </button>
-          <button
-            type="button"
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-              !imagesMode
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setWorkMode("paragraph")}
-          >
-            By Paragraph
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                !imagesMode
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setWorkMode("paragraph")}
+            >
+              By Paragraph
+            </button>
+          )}
         </div>
 
         {imagesMode ? (
@@ -162,9 +164,9 @@ export default function ImageToReels() {
               />
             </div>
           </>
-        ) : (
+        ) : isAdmin ? (
           <ParagraphTab settings={settings} />
-        )}
+        ) : null}
       </div>
 
       {/* ── Right: settings panel ── */}

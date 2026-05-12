@@ -1,6 +1,6 @@
 {
   "name": "nextconvert",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "NextConvert — Reel Stories desktop converter (Electron + FFmpeg)",
   "author": "NextConvert Team",
   "main": "dist/electron/electron/main.js",
@@ -22,6 +22,7 @@
     "lint": "eslint \"app/**/*.{ts,tsx}\""
   },
   "dependencies": {
+    "@clerk/react": "^6.6.2",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-select": "^2.2.6",

@@ -80,6 +80,8 @@ export interface TemplateRecord {
 }
 
 export interface ElectronAPI {
+  getDeviceId: () => Promise<string>;
+  getDeviceName: () => Promise<string>;
   openFiles: () => Promise<string[]>;
   openFolder: () => Promise<string[]>;
   pickFolder: () => Promise<string>;
@@ -129,6 +131,8 @@ export interface ElectronAPI {
 }
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  getDeviceId: () => ipcRenderer.invoke("device:getId"),
+  getDeviceName: () => ipcRenderer.invoke("device:getName"),
   openFiles: () => ipcRenderer.invoke("dialog:openFiles"),
   openFolder: () => ipcRenderer.invoke("dialog:openFolder"),
   pickFolder: () => ipcRenderer.invoke("dialog:pickFolder"),

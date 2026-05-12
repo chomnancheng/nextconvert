@@ -1,5 +1,15 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  readonly VITE_CLERK_PUBLISHABLE_KEY?: string;
+  readonly VITE_SUPABASE_URL?: string;
+  readonly VITE_SUPABASE_ANON_KEY?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
 type SizePreset = "reel" | "story" | "square" | "custom";
 
 type PhotoFitMode = "cover" | "contain" | "stretch";
@@ -119,6 +129,8 @@ interface TemplateRecord {
 
 interface Window {
   electronAPI: {
+    getDeviceId: () => Promise<string>;
+    getDeviceName: () => Promise<string>;
     openFiles: () => Promise<string[]>;
     openFolder: () => Promise<string[]>;
     pickFolder: () => Promise<string>;

@@ -4,6 +4,7 @@ import path from "path";
 
 export default defineConfig({
   root: "app/renderer",
+  envDir: __dirname,
   plugins: [react()],
   resolve: {
     alias: {

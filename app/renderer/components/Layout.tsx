@@ -1,7 +1,12 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/renderer/components/ui/tabs";
+import AuthBar from "@/renderer/components/AuthBar";
+import DeviceGate from "@/renderer/components/DeviceGate";
+import { Show, SignIn } from "@clerk/react";
 import { DownloadCloud, Film, Loader2, Maximize2, Minimize2, Minus, Moon, Sun, X } from "lucide-react";
 import ImageToReels from "@/renderer/pages/ImageToReels";
 import { type CSSProperties, useEffect, useState } from "react";
+
+const clerkEnabled = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim());
 
 export default function Layout() {
   const [isChecking, setIsChecking] = useState(true);
@@ -75,6 +80,18 @@ export default function Layout() {
     setIsMaximized(next);
   };
 
+  const mainInner = (isAdmin = false) => (
+    <Tabs defaultValue="reel-stories" className="flex flex-1 flex-col overflow-hidden">
+      <TabsList className="w-fit">
+        <TabsTrigger value="reel-stories">Reel Stories</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="reel-stories" className="flex flex-1 overflow-hidden mt-4">
+        <ImageToReels isAdmin={isAdmin} />
+      </TabsContent>
+    </Tabs>
+  );
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
@@ -87,6 +104,7 @@ export default function Layout() {
           <span className="text-base font-semibold tracking-tight">NextConvert</span>
         </div>
         <div className="flex min-w-0 shrink-0 items-center gap-3" style={{ WebkitAppRegion: "no-drag" } as CSSProperties}>
+          <AuthBar />
           {currentVersion && (
             <span className="hidden text-xs text-muted-foreground lg:inline">Current version: {currentVersion}</span>
           )}
@@ -160,21 +178,32 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="flex flex-1 flex-col overflow-hidden px-6 pt-5 pb-6">
-        <Tabs defaultValue="reel-stories" className="flex flex-1 flex-col overflow-hidden">
-          <TabsList className="w-fit">
-            <TabsTrigger value="reel-stories">Reel Stories</TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            value="reel-stories"
-            className="flex flex-1 overflow-hidden mt-4"
-          >
-            <ImageToReels />
-          </TabsContent>
-        </Tabs>
-      </main>
+      {/* Main: full app when Clerk off or signed in; sign-in gate when Clerk on and signed out */}
+      {clerkEnabled ? (
+        <>
+          <Show when="signed-out">
+            <main className="flex flex-1 flex-col items-center justify-center gap-6 overflow-auto px-6 py-10 text-center">
+              <Film className="h-14 w-14 text-primary" aria-hidden />
+              <div className="max-w-md space-y-2">
+                <h1 className="text-xl font-semibold tracking-tight">Sign in to use NextConvert</h1>
+                <p className="text-sm text-muted-foreground">
+                  Reel Stories and conversion run only after you sign in with your account.
+                </p>
+              </div>
+              <SignIn routing="hash" />
+            </main>
+          </Show>
+          <Show when="signed-in">
+            <DeviceGate>
+              {(isAdmin) => (
+                <main className="flex flex-1 flex-col overflow-hidden px-6 pt-5 pb-6">{mainInner(isAdmin)}</main>
+              )}
+            </DeviceGate>
+          </Show>
+        </>
+      ) : (
+        <main className="flex flex-1 flex-col overflow-hidden px-6 pt-5 pb-6">{mainInner()}</main>
+      )}
     </div>
   );
 }

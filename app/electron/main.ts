@@ -6,6 +6,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import https from "https";
 import os from "os";
+import crypto from "crypto";
 import { convert, cancelConvert } from "../lib/ffmpeg";
 import type { ConvertOptionsLegacy } from "../lib/ffmpeg";
 import { initStore, storeGet, storeSet } from "../lib/store";
@@ -21,6 +22,12 @@ const isDev = !app.isPackaged || process.env.NODE_ENV === "development";
 const AUDIO_EXTS = new Set([".mp3", ".mp4", ".m4a", ".aac"]);
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]);
+
+/** macOS AppleDouble sidecars (`._realname.ext`) are not real media; FFmpeg fails (e.g. moov atom not found). */
+function isAppleDoubleSidecarFilename(fileName: string): boolean {
+  return fileName.startsWith("._");
+}
+
 const GITHUB_OWNER = "chomnancheng";
 const GITHUB_REPO = "nextconvert";
 
@@ -288,6 +295,7 @@ function collectImages(dir: string): string[] {
   const results: string[] = [];
   try {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (isAppleDoubleSidecarFilename(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) results.push(...collectImages(full));
       else if (IMAGE_EXTS.has(path.extname(entry.name).toLowerCase())) results.push(full);
@@ -299,7 +307,25 @@ function collectImages(dir: string): string[] {
 function listAudioFiles(dir: string): string[] {
   try {
     return fs.readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isFile() && AUDIO_EXTS.has(path.extname(e.name).toLowerCase()))
+      .filter(
+        (e) =>
+          e.isFile() &&
+          !isAppleDoubleSidecarFilename(e.name) &&
+          AUDIO_EXTS.has(path.extname(e.name).toLowerCase()),
+      )
+      .map((e) => path.join(dir, e.name));
+  } catch { return []; }
+}
+
+function listVideoBgFiles(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter(
+        (e) =>
+          e.isFile() &&
+          !isAppleDoubleSidecarFilename(e.name) &&
+          VIDEO_EXTS.has(path.extname(e.name).toLowerCase()),
+      )
       .map((e) => path.join(dir, e.name));
   } catch { return []; }
 }
@@ -312,6 +338,17 @@ async function getAudioDuration(filePath: string): Promise<number | null> {
     if (!m) return null;
     return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]) + parseInt(m[4]) / 100;
   } catch { return null; }
+}
+
+// ── Device identity ───────────────────────────────────────────────────────────
+
+function getOrCreateDeviceId(): string {
+  let id = storeGet<string>("deviceId", "");
+  if (!id) {
+    id = crypto.randomUUID();
+    storeSet("deviceId", id);
+  }
+  return id;
 }
 
 // ── Window ────────────────────────────────────────────────────────────────────
@@ -429,6 +466,10 @@ app.whenReady().then(() => {
   initStore();
   const win = createWindow();
 
+  // ── Device ────────────────────────────────────────────────────────────────
+  ipcMain.handle("device:getId", () => getOrCreateDeviceId());
+  ipcMain.handle("device:getName", () => os.hostname());
+
   // ── Dialogs ──────────────────────────────────────────────────────────────
 
   ipcMain.handle("dialog:openFiles", async () => {
@@ -477,9 +518,7 @@ app.whenReady().then(() => {
   // ── Video background ──────────────────────────────────────────────────────
 
   ipcMain.handle("videobg:scanFolder", (_event, dir: string) => {
-    const files = fs.readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isFile() && VIDEO_EXTS.has(path.extname(e.name).toLowerCase()))
-      .map((e) => path.join(dir, e.name));
+    const files = listVideoBgFiles(dir);
     storeSet("videoBgFolderPath", dir);
     return { files, count: files.length };
   });
@@ -488,9 +527,7 @@ app.whenReady().then(() => {
     const folderPath = storeGet<string>("videoBgFolderPath", "");
     const enabled = storeGet<boolean>("videoBgEnabled", false);
     if (!folderPath) return { folderPath: "", files: [], count: 0, enabled };
-    const files = fs.readdirSync(folderPath, { withFileTypes: true })
-      .filter((e) => e.isFile() && VIDEO_EXTS.has(path.extname(e.name).toLowerCase()))
-      .map((e) => path.join(folderPath, e.name));
+    const files = listVideoBgFiles(folderPath);
     return { folderPath, files, count: files.length, enabled };
   });
 
