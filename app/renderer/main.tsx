@@ -19,11 +19,12 @@ if (!window.electronAPI) {
     "</p></div>";
 } else {
   const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
+  const appUrl = `${window.location.origin}${window.location.pathname}`;
   const app = <App />;
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
       {clerkKey ? (
-        <ClerkProvider afterSignOutUrl="/" publishableKey={clerkKey}>
+        <ClerkProvider afterSignOutUrl={appUrl} publishableKey={clerkKey}>
           {app}
         </ClerkProvider>
       ) : (
