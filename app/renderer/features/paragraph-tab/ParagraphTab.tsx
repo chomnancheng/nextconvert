@@ -20,14 +20,16 @@ import {
 import { useConvert } from "@/renderer/hooks/useConvert";
 import type { Settings, SizePreset } from "@/renderer/hooks/useSettings";
 import type { ImageFile } from "@/renderer/hooks/useImageFiles";
-import type { Template } from "./types";
+import type { Template, LayoutTemplate } from "./types";
 import { useTemplates } from "./hooks/useTemplates";
+import { useLayoutTemplates, FACEBOOK_POSTS_HTML } from "./hooks/useLayoutTemplates";
 import { useParagraphQueue } from "./hooks/useParagraphQueue";
 import ParagraphInput from "./components/ParagraphInput";
 import ParagraphQueueList from "./components/ParagraphQueueList";
 import AIGeneratePanel from "./components/AIGeneratePanel";
 import TemplateFormModal from "./components/TemplateFormModal";
-import { renderPostToDataUrl } from "./utils/postCanvas";
+import LayoutTemplateFormModal from "./components/LayoutTemplateFormModal";
+import { renderHtmlTemplateToDataUrl } from "./utils/renderHtmlTemplate";
 
 interface ParagraphTabProps {
   settings: Settings;
@@ -48,13 +50,28 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
     useParagraphQueue();
   const { templates, loading, createTemplate, updateTemplate, deleteTemplate } =
     useTemplates();
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    () => localStorage.getItem("para-template-id"),
+  );
+
+  // ── Layout templates ──────────────────────────────────────────────────────
+  const {
+    templates: layoutTemplates,
+    createTemplate: createLayoutTemplate,
+    updateTemplate: updateLayoutTemplate,
+    deleteTemplate: deleteLayoutTemplate,
+  } = useLayoutTemplates();
+  const [selectedLayoutId, setSelectedLayoutId] = useState<string | null>(
+    () => localStorage.getItem("para-layout-id"),
+  );
   const { status, fileProgress, outputPaths, errorMessage, run, reset, stop } =
     useConvert();
   const [preparing, setPreparing] = useState(false);
   const [prepError, setPrepError] = useState<string | null>(null);
   const [outputSizesById, setOutputSizesById] = useState<Record<string, number>>({});
-  const [inputMode, setInputMode] = useState<"text" | "ai">("text");
+  const [inputMode, setInputMode] = useState<"text" | "ai">(
+    () => (localStorage.getItem("para-input-mode") as "text" | "ai" | null) ?? "text",
+  );
 
   // ── Template modal state ──────────────────────────────────────────────────
   const [modalOpen, setModalOpen] = useState(false);
@@ -91,9 +108,55 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
   const handleTemplateDelete = useCallback(() => {
     if (!editingTemplate) return;
     deleteTemplate(editingTemplate.id);
-    if (selectedTemplateId === editingTemplate.id) setSelectedTemplateId(null);
+    if (selectedTemplateId === editingTemplate.id) {
+      setSelectedTemplateId(null);
+      localStorage.removeItem("para-template-id");
+    }
     closeModal();
   }, [editingTemplate, deleteTemplate, selectedTemplateId, closeModal]);
+
+  // ── Layout modal state ────────────────────────────────────────────────────
+  const [layoutModalOpen, setLayoutModalOpen] = useState(false);
+  const [editingLayout, setEditingLayout] = useState<LayoutTemplate | null>(null);
+
+  const openNewLayoutModal = useCallback(() => {
+    setEditingLayout(null);
+    setLayoutModalOpen(true);
+  }, []);
+
+  const openEditLayoutModal = useCallback((t: LayoutTemplate) => {
+    setEditingLayout(t);
+    setLayoutModalOpen(true);
+  }, []);
+
+  const closeLayoutModal = useCallback(() => {
+    setLayoutModalOpen(false);
+    setEditingLayout(null);
+  }, []);
+
+  const handleLayoutSave = useCallback(
+    (data: Omit<LayoutTemplate, "id" | "createdAt">) => {
+      if (editingLayout) {
+        updateLayoutTemplate(editingLayout.id, data);
+      } else {
+        const created = createLayoutTemplate(data);
+        setSelectedLayoutId(created.id);
+        localStorage.setItem("para-layout-id", created.id);
+      }
+      closeLayoutModal();
+    },
+    [editingLayout, updateLayoutTemplate, createLayoutTemplate, closeLayoutModal],
+  );
+
+  const handleLayoutDelete = useCallback(() => {
+    if (!editingLayout) return;
+    deleteLayoutTemplate(editingLayout.id);
+    if (selectedLayoutId === editingLayout.id) {
+      setSelectedLayoutId(null);
+      localStorage.removeItem("para-layout-id");
+    }
+    closeLayoutModal();
+  }, [editingLayout, deleteLayoutTemplate, selectedLayoutId, closeLayoutModal]);
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const isRunning = status === "running";
@@ -120,6 +183,14 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
     [templates, selectedTemplateId],
   );
 
+  const selectedLayout = useMemo(
+    () =>
+      layoutTemplates.find((t) => t.id === selectedLayoutId) ??
+      layoutTemplates[0] ??
+      null,
+    [layoutTemplates, selectedLayoutId],
+  );
+
   const { overallProgress, currentLabel } = useMemo(() => {
     const vals = Object.values(fileProgress);
     if (vals.length === 0) return { overallProgress: 0, currentLabel: "" };
@@ -139,7 +210,11 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
     setPrepError(null);
 
     if (!selectedTemplate) {
-      setPrepError("Select a template before converting.");
+      setPrepError("Select a profile before converting.");
+      return;
+    }
+    if (!selectedLayout) {
+      setPrepError("Select a layout before converting.");
       return;
     }
     if (!settings.outputDir) {
@@ -159,7 +234,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
     try {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        const dataUrl = await renderPostToDataUrl(selectedTemplate, item.text, { dims, transparent });
+        const dataUrl = await renderHtmlTemplateToDataUrl(selectedLayout, selectedTemplate, item.text, { dims, transparent });
         const base64   = dataUrl.split(",")[1];
         const filename = `post_${String(i + 1).padStart(3, "0")}.png`;
         const tempPath = await window.electronAPI.saveParagraphTempImage(base64, filename);
@@ -179,7 +254,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
     setPreparing(false);
     await run(syntheticFiles, "by-images", settings);
     void window.electronAPI.cleanupParagraphTemp();
-  }, [selectedTemplate, settings, items, run]);
+  }, [selectedTemplate, selectedLayout, settings, items, run]);
 
   const handleClearAll = useCallback(() => {
     clearAll();
@@ -194,30 +269,81 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
       <ScrollArea className="flex-1 pr-2">
         <div className="flex flex-col gap-4">
 
-          {/* ── Template selector row ── */}
+          {/* ── Layout selector row ── */}
           <div className="flex items-center gap-2">
-            <span className="shrink-0 text-xs font-medium text-muted-foreground">Template</span>
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Layout</span>
+
+            <Select
+              value={selectedLayout?.id ?? ""}
+              onValueChange={(v) => { setSelectedLayoutId(v); localStorage.setItem("para-layout-id", v); }}
+              disabled={isLocked}
+            >
+              <SelectTrigger className="flex-1 h-8 text-xs">
+                <SelectValue placeholder="Select a layout…" />
+              </SelectTrigger>
+              <SelectContent>
+                {layoutTemplates.map((t) => (
+                  <SelectItem key={t.id} value={t.id} className="text-xs">
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {selectedLayout && (
+              <button
+                type="button"
+                onClick={() => openEditLayoutModal(selectedLayout)}
+                disabled={isLocked}
+                title="Edit layout"
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5",
+                  "text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors",
+                  isLocked && "opacity-50 pointer-events-none",
+                )}
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={openNewLayoutModal}
+              disabled={isLocked}
+              title="Add new layout"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/60 px-2.5",
+                "text-xs font-medium text-primary hover:bg-primary/10 transition-colors",
+                isLocked && "opacity-50 pointer-events-none",
+              )}
+            >
+              <Plus className="h-3 w-3" />
+              New
+            </button>
+          </div>
+
+          {/* ── Profile selector row ── */}
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">Profile</span>
 
             <Select
               value={selectedTemplateId ?? ""}
-              onValueChange={setSelectedTemplateId}
+              onValueChange={(v) => { setSelectedTemplateId(v); localStorage.setItem("para-template-id", v); }}
               disabled={isLocked || loading}
             >
               <SelectTrigger className="flex-1 h-8 text-xs">
-                <SelectValue placeholder={loading ? "Loading…" : "Select a template…"} />
+                <SelectValue placeholder={loading ? "Loading…" : "Select a profile…"} />
               </SelectTrigger>
               <SelectContent>
                 {templates.length === 0 ? (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
-                    No templates yet — click <strong>New</strong> to create one.
+                    No profiles yet — click <strong>New</strong> to create one.
                   </div>
                 ) : (
                   templates.map((t) => (
                     <SelectItem key={t.id} value={t.id} className="text-xs">
-                      {t.name}
-                      {t.profileName && (
-                        <span className="ml-1.5 text-muted-foreground">· {t.profileName}</span>
-                      )}
+                      {t.profileName}
                     </SelectItem>
                   ))
                 )}
@@ -230,7 +356,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
                 type="button"
                 onClick={() => openEditModal(selectedTemplate)}
                 disabled={isLocked}
-                title="Edit selected template"
+                title="Edit selected profile"
                 className={cn(
                   "inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5",
                   "text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors",
@@ -247,7 +373,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
               type="button"
               onClick={openNewModal}
               disabled={isLocked}
-              title="Add new template"
+              title="Add new profile"
               className={cn(
                 "inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/60 px-2.5",
                 "text-xs font-medium text-primary hover:bg-primary/10 transition-colors",
@@ -272,7 +398,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => setInputMode("text")}
+              onClick={() => { setInputMode("text"); localStorage.setItem("para-input-mode", "text"); }}
             >
               Text Import
             </button>
@@ -284,7 +410,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => setInputMode("ai")}
+              onClick={() => { setInputMode("ai"); localStorage.setItem("para-input-mode", "ai"); }}
             >
               ✨ AI Generate
             </button>
@@ -307,6 +433,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
             items={items}
             fileProgress={fileProgress}
             outputSizes={outputSizesById}
+            outputPaths={outputPaths}
             onRemove={removeItem}
             onClear={handleClearAll}
             disabled={isLocked}
@@ -408,13 +535,23 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
         </div>
       </div>
 
-      {/* ── Template modal ── */}
+      {/* ── Profile modal ── */}
       <TemplateFormModal
         open={modalOpen}
         template={editingTemplate}
         onSave={handleTemplateSave}
         onDelete={editingTemplate ? handleTemplateDelete : undefined}
         onClose={closeModal}
+      />
+
+      {/* ── Layout modal ── */}
+      <LayoutTemplateFormModal
+        open={layoutModalOpen}
+        template={editingLayout}
+        defaultHtml={FACEBOOK_POSTS_HTML}
+        onSave={handleLayoutSave}
+        onDelete={editingLayout ? handleLayoutDelete : undefined}
+        onClose={closeLayoutModal}
       />
     </div>
   );

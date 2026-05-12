@@ -3,21 +3,22 @@ import { X, FolderOpen, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Template } from "../types";
 
-// postDate is intentionally omitted — canvas always shows today's date
-type FormData = Omit<Template, "id" | "createdAt" | "postDate">;
+type FormData = {
+  profileName: string;
+  profileImage: string;
+  readMoreText: string;
+};
 
 const EMPTY: FormData = {
-  name: "",
-  profileImage: "",
   profileName: "",
-  readMoreText: "See More",
-  commentLink: "",
+  profileImage: "",
+  readMoreText: "Link read more at comment",
 };
 
 interface TemplateFormModalProps {
   open: boolean;
   template?: Template | null;
-  onSave: (data: FormData) => void;
+  onSave: (data: Omit<Template, "id" | "createdAt" | "postDate">) => void;
   onDelete?: () => void;
   onClose: () => void;
 }
@@ -38,11 +39,9 @@ export default function TemplateFormModal({
       setForm(
         template
           ? {
-              name: template.name,
-              profileImage: template.profileImage,
               profileName: template.profileName,
+              profileImage: template.profileImage,
               readMoreText: template.readMoreText,
-              commentLink: template.commentLink,
             }
           : { ...EMPTY },
       );
@@ -58,8 +57,13 @@ export default function TemplateFormModal({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
-    onSave(form);
+    if (!form.profileName.trim()) return;
+    onSave({
+      name: form.profileName.trim(),
+      profileName: form.profileName.trim(),
+      profileImage: form.profileImage,
+      readMoreText: form.readMoreText,
+    });
   };
 
   const inputCls =
@@ -74,7 +78,7 @@ export default function TemplateFormModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-sm font-semibold text-foreground">
-            {template ? "Edit Template" : "New Template"}
+            {template ? "Edit Profile" : "New Profile"}
           </h2>
           <button
             type="button"
@@ -88,23 +92,13 @@ export default function TemplateFormModal({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 px-5 py-4">
-          <Field label="Template name *" htmlFor="tf-name">
-            <input
-              id="tf-name"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. My Brand Template"
-              required
-              className={inputCls}
-            />
-          </Field>
-
-          <Field label="Profile name" htmlFor="tf-pname">
+          <Field label="Profile name *" htmlFor="tf-pname">
             <input
               id="tf-pname"
               value={form.profileName}
               onChange={(e) => setForm((f) => ({ ...f, profileName: e.target.value }))}
               placeholder="e.g. John Doe"
+              required
               className={inputCls}
             />
           </Field>
@@ -129,29 +123,18 @@ export default function TemplateFormModal({
             <p className="text-[10px] text-muted-foreground">Date is always set to today automatically.</p>
           </Field>
 
-          <Field label="Read more text" htmlFor="tf-readmore">
+          <Field label="Call to action" htmlFor="tf-readmore">
             <input
               id="tf-readmore"
               value={form.readMoreText}
               onChange={(e) => setForm((f) => ({ ...f, readMoreText: e.target.value }))}
-              placeholder="e.g. See More"
-              className={inputCls}
-            />
-          </Field>
-
-          <Field label="Comment link" htmlFor="tf-comment">
-            <input
-              id="tf-comment"
-              value={form.commentLink}
-              onChange={(e) => setForm((f) => ({ ...f, commentLink: e.target.value }))}
-              placeholder="e.g. 128 comments"
+              placeholder="e.g. Link read more at comment"
               className={inputCls}
             />
           </Field>
 
           {/* Footer */}
           <div className="flex items-center justify-between border-t border-border pt-4">
-            {/* Delete */}
             {onDelete && (
               confirmDelete ? (
                 <div className="flex items-center gap-2">
@@ -193,10 +176,10 @@ export default function TemplateFormModal({
               </button>
               <button
                 type="submit"
-                disabled={!form.name.trim()}
+                disabled={!form.profileName.trim()}
                 className={cn(
                   "rounded-md px-4 py-2 text-xs font-semibold transition-colors",
-                  form.name.trim()
+                  form.profileName.trim()
                     ? "bg-primary text-primary-foreground hover:bg-primary/90"
                     : "bg-muted text-muted-foreground cursor-not-allowed",
                 )}

@@ -192,7 +192,7 @@ export function useConvert() {
           const videoBg = videoBgQueue?.pick() ?? null;
           if (videoBg) {
             // Video background mode: video loops behind, image centered on top
-            input = videoBg;
+            input = videoBg.trim();
             inputIsVideo = true;
             overlayImagePath = primaryPath;
           } else {

@@ -21,7 +21,7 @@ const isDev = !app.isPackaged || process.env.NODE_ENV === "development";
 
 const AUDIO_EXTS = new Set([".mp3", ".mp4", ".m4a", ".aac"]);
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
-const VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]);
+const VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".m2ts", ".mts", ".ts", ".wmv", ".flv", ".3gp", ".f4v"]);
 
 /** macOS AppleDouble sidecars (`._realname.ext`) are not real media; FFmpeg fails (e.g. moov atom not found). */
 function isAppleDoubleSidecarFilename(fileName: string): boolean {
@@ -317,17 +317,65 @@ function listAudioFiles(dir: string): string[] {
   } catch { return []; }
 }
 
-function listVideoBgFiles(dir: string): string[] {
+function resolveExistingFolderPath(dir: string): string {
   try {
-    return fs.readdirSync(dir, { withFileTypes: true })
-      .filter(
-        (e) =>
-          e.isFile() &&
-          !isAppleDoubleSidecarFilename(e.name) &&
-          VIDEO_EXTS.has(path.extname(e.name).toLowerCase()),
-      )
-      .map((e) => path.join(dir, e.name));
-  } catch { return []; }
+    if (fs.statSync(dir).isDirectory()) return dir;
+  } catch {
+    /* try sibling recovery below */
+  }
+
+  const parent = path.dirname(dir);
+  const targetName = path.basename(dir).trim();
+  if (!targetName) return dir;
+
+  try {
+    const match = fs.readdirSync(parent, { withFileTypes: true })
+      .find((entry) => entry.isDirectory() && entry.name.trim() === targetName);
+    return match ? path.join(parent, match.name) : dir;
+  } catch {
+    return dir;
+  }
+}
+
+function listVideoBgFiles(dir: string): { files: string[]; totalFiles: number; folderPath: string } {
+  const folderPath = resolveExistingFolderPath(dir);
+  const files: string[] = [];
+  let totalFiles = 0;
+  function collect(d: string) {
+    try {
+      for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+        if (isAppleDoubleSidecarFilename(entry.name)) continue;
+        const fullPath = path.join(d, entry.name);
+
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(fullPath);
+        } catch {
+          continue;
+        }
+
+        if (stat.isDirectory()) {
+          collect(fullPath);
+        } else if (stat.isFile()) {
+          totalFiles++;
+          if (VIDEO_EXTS.has(path.extname(fullPath).toLowerCase())) {
+            files.push(fullPath);
+          }
+        }
+      }
+    } catch { /* skip unreadable subdirs */ }
+  }
+  try {
+    const raw = fs.readdirSync(folderPath);
+    console.log(`[videobg] raw entries in "${folderPath}":`, raw);
+  } catch (e) {
+    console.log(`[videobg] raw read failed:`, e);
+    const code = (e as NodeJS.ErrnoException).code;
+    return { files: [], totalFiles: code === "ENOENT" ? -2 : -1, folderPath };
+  }
+  collect(folderPath);
+  console.log(`[videobg] scan "${folderPath}": ${files.length}/${totalFiles} video files found`);
+  return { files, totalFiles, folderPath };
 }
 
 async function getAudioDuration(filePath: string): Promise<number | null> {
@@ -565,17 +613,22 @@ app.whenReady().then(async () => {
   // ── Video background ──────────────────────────────────────────────────────
 
   ipcMain.handle("videobg:scanFolder", (_event, dir: string) => {
-    const files = listVideoBgFiles(dir);
-    storeSet("videoBgFolderPath", dir);
-    return { files, count: files.length };
+    const { files, totalFiles, folderPath } = listVideoBgFiles(dir);
+    storeSet("videoBgFolderPath", folderPath);
+    return { folderPath, files, count: files.length, totalFiles };
   });
 
   ipcMain.handle("videobg:getSavedFolder", () => {
     const folderPath = storeGet<string>("videoBgFolderPath", "");
     const enabled = storeGet<boolean>("videoBgEnabled", false);
-    if (!folderPath) return { folderPath: "", files: [], count: 0, enabled };
-    const files = listVideoBgFiles(folderPath);
-    return { folderPath, files, count: files.length, enabled };
+    if (!folderPath) return { folderPath: "", files: [], count: 0, totalFiles: 0, enabled };
+    const { files, totalFiles, folderPath: resolvedFolderPath } = listVideoBgFiles(folderPath);
+    if (resolvedFolderPath !== folderPath) storeSet("videoBgFolderPath", resolvedFolderPath);
+    if (totalFiles === -2) {
+      storeSet("videoBgFolderPath", "");
+      return { folderPath: "", files: [], count: 0, totalFiles: 0, enabled };
+    }
+    return { folderPath: resolvedFolderPath, files, count: files.length, totalFiles, enabled };
   });
 
   ipcMain.handle("videobg:saveEnabled", (_event, enabled: boolean) => {
@@ -731,6 +784,10 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("shell:showItem", (_event, filePath: string) => {
     shell.showItemInFolder(filePath);
+  });
+
+  ipcMain.handle("shell:openPrivacySettings", () => {
+    void shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
   });
 
   // ── Window controls ───────────────────────────────────────────────────────

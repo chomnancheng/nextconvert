@@ -183,7 +183,13 @@ export default function SettingsPanel({
     const dir = await window.electronAPI.pickFolder();
     if (!dir) return;
     const result = await window.electronAPI.scanVideoBgFolder(dir);
-    onVideoBg({ folderPath: dir, files: result.files, fileCount: result.count });
+    const videoBgResult = result as typeof result & { folderPath?: string; totalFiles?: number };
+    onVideoBg({
+      folderPath: videoBgResult.folderPath ?? dir,
+      files: result.files,
+      fileCount: result.count,
+      totalFiles: videoBgResult.totalFiles ?? result.count,
+    });
   };
 
   const handleBrowseOutputDir = async () => {
@@ -550,7 +556,26 @@ export default function SettingsPanel({
                   {videoBg.fileCount === 0 ? (
                     <>
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      <span>No video files found. Add MP4, MOV or MKV files to this folder.</span>
+                      <div className="flex flex-col gap-1.5">
+                        <span>
+                          {videoBg.totalFiles > 0
+                            ? `Found ${videoBg.totalFiles} file${videoBg.totalFiles !== 1 ? "s" : ""} but none are supported formats. Supported: MP4, MOV, MKV, AVI, WebM, M4V.`
+                            : videoBg.totalFiles === -2
+                              ? "This saved folder no longer exists. Pick the video folder again using the folder icon."
+                            : videoBg.totalFiles === -1
+                              ? "macOS blocked access to this folder. Pick the folder again using the folder icon to re-grant access, or grant Full Disk Access below."
+                              : "No video files found. Add MP4, MOV, MKV or AVI files to this folder."}
+                        </span>
+                        {videoBg.totalFiles === -1 && (
+                          <button
+                            type="button"
+                            onClick={() => void window.electronAPI.openPrivacySettings()}
+                            className="self-start rounded px-2 py-0.5 text-[10px] font-medium bg-destructive/20 hover:bg-destructive/30 transition-colors"
+                          >
+                            Open Privacy &amp; Security Settings →
+                          </button>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <>

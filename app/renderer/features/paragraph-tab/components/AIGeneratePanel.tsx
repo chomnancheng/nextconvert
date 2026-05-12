@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { Loader2, Sparkles, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Loader2, Sparkles, Eye, EyeOff, AlertCircle, Pencil, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -8,6 +8,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/renderer/components/ui/select";
+import type { WritingStyle } from "../types";
+import { useWritingStyles } from "../hooks/useWritingStyles";
+import WritingStyleFormModal from "./WritingStyleFormModal";
 
 interface AIGeneratePanelProps {
   onGenerate: (posts: string[]) => void;
@@ -38,41 +41,65 @@ const PROVIDERS = [
 
 type ProviderId = (typeof PROVIDERS)[number]["id"];
 
-// ── Writing styles ────────────────────────────────────────────────────────
-const SKILLS = [
-  {
-    id: "mystery",
-    label: "Mystery / Suspense",
-    userPrompt:
-      'Generate {count} mysterious suspenseful Facebook posts. Begin each with a bold red label: <span style="color:#e60023;font-weight:bold;">MYSTERY:</span> or <span style="color:#e60023;font-weight:bold;">SHOCKING:</span>. Build intrigue and end with an unsettling reveal or open question. 3-5 sentences each. Separate posts with a blank line.',
-  },
-  {
-    id: "family",
-    label: "Family Story",
-    userPrompt:
-      'Generate {count} heartwarming Facebook posts about relatable family moments. Each tells a brief emotional story. Bold key emotional phrases: <span style="font-weight:bold;">phrase</span>. 3-4 sentences each. Separate posts with a blank line.',
-  },
-  {
-    id: "drama",
-    label: "Social Drama",
-    userPrompt:
-      'Generate {count} engaging Facebook posts about relatable social drama. Feel authentic, build curiosity. Highlight shocking moments with <span style="color:#e60023;font-weight:bold;">red bold text</span>. 2-4 sentences each. Separate posts with a blank line.',
-  },
-  {
-    id: "readmore",
-    label: "Hook (Read More)",
-    userPrompt:
-      'Generate {count} Facebook posts that make readers desperate to click "See More". Open with a bold hook: <span style="font-weight:bold;">hook phrase</span>. Build suspense that ends in a cliffhanger. 3-5 sentences each. Separate posts with a blank line.',
-  },
-] as const;
-
-type SkillId = (typeof SKILLS)[number]["id"];
-
 const SYSTEM_PROMPT =
   "You are a viral Facebook post writer. Write exactly the requested number of posts. " +
   "Separate each post with one blank line. " +
   "Use HTML span tags for emphasis exactly as specified. " +
+  "Respect the requested maximum word count for every post. " +
   "Return ONLY the posts — no numbering, no labels, no preamble.";
+
+function stripHtml(html: string): string {
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  return el.textContent ?? html;
+}
+
+function countWords(html: string): number {
+  return stripHtml(html).trim().split(/\s+/).filter(Boolean).length;
+}
+
+function trimTextToWordLimit(text: string, remaining: { value: number }): string {
+  const tokens = text.match(/\s+|\S+/g) ?? [];
+  let out = "";
+
+  for (const token of tokens) {
+    if (/^\s+$/.test(token)) {
+      if (out && remaining.value > 0) out += token;
+      continue;
+    }
+
+    if (remaining.value <= 0) break;
+    out += token;
+    remaining.value -= 1;
+  }
+
+  return out.trimEnd();
+}
+
+function trimNodeToWordLimit(node: Node, remaining: { value: number }): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    node.textContent = trimTextToWordLimit(node.textContent ?? "", remaining);
+    return;
+  }
+
+  for (const child of Array.from(node.childNodes)) {
+    if (remaining.value <= 0) {
+      child.remove();
+      continue;
+    }
+    trimNodeToWordLimit(child, remaining);
+  }
+}
+
+function enforceWordLimit(html: string, maxWords: number): string {
+  const limit = Math.max(1, Math.floor(maxWords));
+  if (countWords(html) <= limit) return html.trim();
+
+  const template = document.createElement("template");
+  template.innerHTML = html.trim();
+  trimNodeToWordLimit(template.content, { value: limit });
+  return template.innerHTML.trim();
+}
 
 function friendlyError(status: number, msg: string, providerLabel: string): string {
   if (status === 401) return `Invalid API key — double-check your ${providerLabel} key.`;
@@ -85,12 +112,15 @@ function friendlyError(status: number, msg: string, providerLabel: string): stri
 async function callAI(
   provider: ProviderId,
   apiKey: string,
-  skill: SkillId,
+  style: WritingStyle,
   count: number,
 ): Promise<string[]> {
   const prov = PROVIDERS.find((p) => p.id === provider)!;
-  const skillDef = SKILLS.find((s) => s.id === skill)!;
-  const userPrompt = skillDef.userPrompt.replace("{count}", String(count));
+  const wordLimit = Math.max(1, Math.floor(style.wordCount));
+  const userPrompt = style.prompt
+    .replace(/\{count\}/g, String(count))
+    .replace(/\{wordCount\}/g, String(wordLimit)) +
+    `\n\nHard limit: each post must be ${wordLimit} words or fewer. Do not exceed this word count.`;
 
   const res = await fetch(`${prov.baseUrl}/chat/completions`, {
     method: "POST",
@@ -119,7 +149,8 @@ async function callAI(
   return content
     .split(/\n{2,}/)
     .map((p) => p.replace(/^\d+[.)]\s*/, "").trim())
-    .filter((p) => p.length > 20);
+    .map((p) => enforceWordLimit(p, wordLimit))
+    .filter((p) => countWords(p) > 0);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -129,44 +160,90 @@ const inputCls =
   "text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
 export default function AIGeneratePanel({ onGenerate, disabled }: AIGeneratePanelProps) {
-  const [provider, setProvider] = useState<ProviderId>("groq");
+  const { styles, createStyle, updateStyle, deleteStyle } = useWritingStyles();
+
+  const [provider, setProvider] = useState<ProviderId>(
+    () => (localStorage.getItem("ai-provider") as ProviderId | null) ?? "groq",
+  );
   const [apiKeys, setApiKeys] = useState<Partial<Record<ProviderId, string>>>(() => ({
     groq: localStorage.getItem("groq-key") ?? "",
     openai: localStorage.getItem("oai-key") ?? "",
   }));
   const [showKey, setShowKey] = useState(false);
-  const [count, setCount] = useState(5);
-  const [skill, setSkill] = useState<SkillId>("mystery");
+  const [count, setCount] = useState(() => Number(localStorage.getItem("ai-count") || "5"));
+
+  // Selected style — persist by ID; fall back to first style
+  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(
+    () => localStorage.getItem("ai-skill"),
+  );
+  const selectedStyle = styles.find((s) => s.id === selectedStyleId) ?? styles[0] ?? null;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Style modal
+  const [styleModalOpen, setStyleModalOpen] = useState(false);
+  const [editingStyle, setEditingStyle] = useState<WritingStyle | null>(null);
 
   const currentKey = apiKeys[provider] ?? "";
   const currentProv = PROVIDERS.find((p) => p.id === provider)!;
 
-  // Persist keys per provider
-  useEffect(() => {
-    const storageKey = PROVIDERS.find((p) => p.id === provider)?.storageKey;
-    if (!storageKey) return;
-    if (currentKey) localStorage.setItem(storageKey, currentKey);
-    else localStorage.removeItem(storageKey);
-  }, [provider, currentKey]);
-
   const setKey = useCallback((val: string) => {
     setApiKeys((prev) => ({ ...prev, [provider]: val }));
+    const storageKey = PROVIDERS.find((p) => p.id === provider)?.storageKey;
+    if (storageKey) {
+      if (val) localStorage.setItem(storageKey, val);
+      else localStorage.removeItem(storageKey);
+    }
   }, [provider]);
 
   const handleProviderChange = useCallback((val: string) => {
     setProvider(val as ProviderId);
+    localStorage.setItem("ai-provider", val);
     setError(null);
     setShowKey(false);
   }, []);
 
+  const handleStyleSelect = useCallback((id: string) => {
+    setSelectedStyleId(id);
+    localStorage.setItem("ai-skill", id);
+  }, []);
+
+  const handleStyleSave = useCallback(
+    (data: Omit<WritingStyle, "id" | "createdAt">) => {
+      if (editingStyle) {
+        updateStyle(editingStyle.id, data);
+      } else {
+        const created = createStyle(data);
+        handleStyleSelect(created.id);
+      }
+      setStyleModalOpen(false);
+      setEditingStyle(null);
+    },
+    [editingStyle, updateStyle, createStyle, handleStyleSelect],
+  );
+
+  const handleStyleDelete = useCallback(() => {
+    if (!editingStyle) return;
+    deleteStyle(editingStyle.id);
+    if (selectedStyleId === editingStyle.id) {
+      const remaining = styles.filter((s) => s.id !== editingStyle.id);
+      const next = remaining[0] ?? null;
+      setSelectedStyleId(next?.id ?? null);
+      if (next) localStorage.setItem("ai-skill", next.id);
+      else localStorage.removeItem("ai-skill");
+    }
+    setStyleModalOpen(false);
+    setEditingStyle(null);
+  }, [editingStyle, deleteStyle, selectedStyleId, styles]);
+
   const handleGenerate = useCallback(async () => {
     if (!currentKey.trim()) { setError("Enter your API key."); return; }
+    if (!selectedStyle)     { setError("Select a writing style."); return; }
     setError(null);
     setLoading(true);
     try {
-      const posts = await callAI(provider, currentKey.trim(), skill, count);
+      const posts = await callAI(provider, currentKey.trim(), selectedStyle, count);
       if (posts.length === 0) throw new Error("No posts returned — try again.");
       onGenerate(posts);
     } catch (err) {
@@ -174,13 +251,15 @@ export default function AIGeneratePanel({ onGenerate, disabled }: AIGeneratePane
     } finally {
       setLoading(false);
     }
-  }, [provider, currentKey, skill, count, onGenerate]);
+  }, [provider, currentKey, selectedStyle, count, onGenerate]);
 
   const isLocked = disabled || loading;
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Provider */}
+    <div className="flex flex-col gap-5">
+
+      {/* ── Provider + API key ── */}
+      <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-foreground/70">Provider</label>
         <Select value={provider} onValueChange={handleProviderChange} disabled={isLocked}>
@@ -221,50 +300,91 @@ export default function AIGeneratePanel({ onGenerate, disabled }: AIGeneratePane
         </div>
         <p className="text-[10px] text-muted-foreground">{currentProv.keyHint} · Stored locally.</p>
       </div>
+      </div>
 
-      {/* Style + count */}
-      <div className="flex gap-2">
-        <div className="flex flex-1 flex-col gap-1.5">
-          <label className="text-xs font-medium text-foreground/70">Writing style</label>
-          <Select value={skill} onValueChange={(v) => setSkill(v as SkillId)} disabled={isLocked}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
+      {/* ── Writing style + count + generate ── */}
+      <div className="flex flex-col gap-3 border-t border-border pt-4">
+      {/* Writing style + count */}
+      <div className="flex items-end gap-3">
+      <div className="flex flex-1 flex-col gap-1.5">
+        <label className="text-xs font-medium text-foreground/70">Writing style</label>
+        <div className="flex gap-1.5">
+          <Select
+            value={selectedStyle?.id ?? ""}
+            onValueChange={handleStyleSelect}
+            disabled={isLocked}
+          >
+            <SelectTrigger className="h-8 w-48 text-xs">
+              <SelectValue placeholder="Select a style…" />
             </SelectTrigger>
             <SelectContent>
-              {SKILLS.map((s) => (
+              {styles.map((s) => (
                 <SelectItem key={s.id} value={s.id} className="text-xs">
-                  {s.label}
+                  {s.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
 
-        <div className="flex w-20 flex-col gap-1.5">
-          <label className="text-xs font-medium text-foreground/70">Count</label>
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={count}
-            onChange={(e) =>
-              setCount(Math.min(20, Math.max(1, Number(e.target.value) || 1)))
-            }
+          {selectedStyle && (
+            <button
+              type="button"
+              onClick={() => { setEditingStyle(selectedStyle); setStyleModalOpen(true); }}
+              disabled={isLocked}
+              title="Edit style"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => { setEditingStyle(null); setStyleModalOpen(true); }}
             disabled={isLocked}
-            className={inputCls}
-          />
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/60 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+          >
+            <Plus className="h-3 w-3" />
+            New
+          </button>
         </div>
       </div>
+
+      <div className="flex w-20 shrink-0 flex-col gap-1.5">
+        <label className="text-xs font-medium text-foreground/70">Count</label>
+        <input
+          type="number"
+          min={1}
+          max={20}
+          value={count}
+          onChange={(e) => {
+            const v = Math.min(20, Math.max(1, Number(e.target.value) || 1));
+            setCount(v);
+            localStorage.setItem("ai-count", String(v));
+          }}
+          disabled={isLocked}
+          className={inputCls}
+        />
+      </div>
+      </div>
+
+      {/* Word count readout */}
+      {selectedStyle && (
+        <p className="text-[10px] text-muted-foreground">
+          Max {selectedStyle.wordCount} words per post
+        </p>
+      )}
 
       {/* Generate button */}
       <button
         type="button"
         onClick={!isLocked ? () => void handleGenerate() : undefined}
-        disabled={isLocked || !currentKey.trim()}
+        disabled={isLocked || !currentKey.trim() || !selectedStyle}
         className={cn(
           "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors",
           "border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          isLocked || !currentKey.trim()
+          isLocked || !currentKey.trim() || !selectedStyle
             ? "cursor-not-allowed border-border bg-muted text-muted-foreground opacity-70"
             : "cursor-pointer border-violet-500/60 bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20",
         )}
@@ -282,6 +402,16 @@ export default function AIGeneratePanel({ onGenerate, disabled }: AIGeneratePane
           <p className="text-xs text-destructive leading-relaxed">{error}</p>
         </div>
       )}
+      </div>
+
+      {/* Writing style modal */}
+      <WritingStyleFormModal
+        open={styleModalOpen}
+        style={editingStyle}
+        onSave={handleStyleSave}
+        onDelete={editingStyle ? handleStyleDelete : undefined}
+        onClose={() => { setStyleModalOpen(false); setEditingStyle(null); }}
+      />
     </div>
   );
 }

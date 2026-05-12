@@ -1,6 +1,6 @@
 {
   "name": "nextconvert",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "NextConvert — Reel Stories desktop converter (Electron + FFmpeg)",
   "author": "NextConvert Team",
   "main": "dist/electron/electron/main.js",
@@ -32,6 +32,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "ffmpeg-static": "^5.3.0",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

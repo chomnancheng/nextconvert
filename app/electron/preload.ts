@@ -75,7 +75,7 @@ export interface TemplateRecord {
   profileName: string;
   postDate: string;
   readMoreText: string;
-  commentLink: string;
+  commentLink?: string;
   createdAt: string;
 }
 
@@ -88,6 +88,7 @@ export interface ElectronAPI {
   convert: (jobId: string, options: ConvertOptionsLegacy) => Promise<ConvertResult>;
   onConvertProgress: (cb: (jobId: string, percent: number) => void) => () => void;
   showItem: (filePath: string) => Promise<void>;
+  openPrivacySettings: () => Promise<void>;
   imageToDataUrl: (filePath: string) => Promise<string>;
   /** Byte size per absolute path for existing files */
   getFileSizes: (paths: string[]) => Promise<Record<string, number>>;
@@ -150,6 +151,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   showItem: (filePath: string) => ipcRenderer.invoke("shell:showItem", filePath),
+  openPrivacySettings: () => ipcRenderer.invoke("shell:openPrivacySettings"),
   imageToDataUrl: (filePath: string) => ipcRenderer.invoke("image:toDataUrl", filePath),
   getFileSizes: (paths: string[]) => ipcRenderer.invoke("file:getSizes", paths),
 

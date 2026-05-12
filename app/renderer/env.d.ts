@@ -123,7 +123,7 @@ interface TemplateRecord {
   profileName: string;
   postDate?: string;
   readMoreText: string;
-  commentLink: string;
+  commentLink?: string;
   createdAt: string;
 }
 
@@ -137,6 +137,7 @@ interface Window {
     convert: (jobId: string, options: ConvertOptions) => Promise<ConvertResult>;
     onConvertProgress: (cb: (jobId: string, percent: number) => void) => () => void;
     showItem: (filePath: string) => Promise<void>;
+    openPrivacySettings: () => Promise<void>;
     imageToDataUrl: (filePath: string) => Promise<string>;
     getFileSizes: (paths: string[]) => Promise<Record<string, number>>;
     getFilePath: (file: File) => string;

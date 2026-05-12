@@ -51,6 +51,8 @@ export interface VideoBgSettings {
   folderPath: string;
   files: string[];
   fileCount: number;
+  /** Total non-hidden files in folder regardless of extension; -1 = unreadable, -2 = missing */
+  totalFiles: number;
   /** Hex color of the wash layer drawn between video bg and image overlay. */
   overlayColor: string;
   /** Opacity of the wash layer, 0–100. 0 = off. */
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
     folderPath: "",
     files: [],
     fileCount: 0,
+    totalFiles: 0,
     overlayColor: "#000000",
     overlayOpacity: 0,
     overlayImageMaxPercent: 100,
@@ -230,6 +233,7 @@ export function useSettings() {
               folderPath: vbg.folderPath,
               files: vbg.files,
               fileCount: vbg.count,
+              totalFiles: (vbg as { totalFiles?: number }).totalFiles ?? vbg.count,
             },
           }));
         }).catch(() => {});

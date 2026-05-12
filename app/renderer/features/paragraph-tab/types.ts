@@ -1,11 +1,42 @@
 export interface Template {
   id: string;
-  name: string;
+  name: string;          // mirrors profileName; kept for backward-compat
   profileImage: string;
   profileName: string;
-  postDate?: string;   // kept for backward-compat; canvas always shows today's date
+  postDate?: string;
   readMoreText: string;
-  commentLink: string;
+  commentLink?: string;  // deprecated; ignored by canvas
+  createdAt: string;
+}
+
+export interface CountRanges {
+  likeMin: number;
+  likeMax: number;
+  commentMin: number;
+  commentMax: number;
+  shareMin: number;
+  shareMax: number;
+}
+
+export const DEFAULT_COUNT_RANGES: CountRanges = {
+  likeMin: 1000,  likeMax: 99000,
+  commentMin: 100, commentMax: 20000,
+  shareMin: 50,   shareMax: 10000,
+};
+
+export interface LayoutTemplate {
+  id: string;
+  name: string;
+  html: string;
+  countRanges?: CountRanges;
+  createdAt: string;
+}
+
+export interface WritingStyle {
+  id: string;
+  name: string;
+  prompt: string;    // uses {count} and {wordCount} tokens
+  wordCount: number;
   createdAt: string;
 }
 

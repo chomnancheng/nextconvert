@@ -419,19 +419,10 @@ export async function renderPostToDataUrl(
   ctx.fillStyle = "#65676B";
   ctx.fillText("Comment", commentBtnX + iconSize + iconGap, actionY);
 
-  // Share (commentLink overrides label when set)
   const shareBtnX = innerX + section * 2;
   drawSvgIcon(ctx, PATH_SHARE, shareBtnX, actionY - iconSize / 2, iconSize, "#65676B");
-  if (template.commentLink) {
-    ctx.fillStyle = "#1877F2";
-    const link = template.commentLink.length > 18
-      ? `${template.commentLink.slice(0, 18)}…`
-      : template.commentLink;
-    ctx.fillText(link, shareBtnX + iconSize + iconGap, actionY);
-  } else {
-    ctx.fillStyle = "#65676B";
-    ctx.fillText("Share", shareBtnX + iconSize + iconGap, actionY);
-  }
+  ctx.fillStyle = "#65676B";
+  ctx.fillText("Share", shareBtnX + iconSize + iconGap, actionY);
 
   return canvas.toDataURL("image/png");
 }
