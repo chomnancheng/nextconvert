@@ -429,26 +429,55 @@ function loadDevRenderer(win: BrowserWindow): void {
     });
 }
 
-function isFileUrl(url: string): boolean {
-  try {
-    return new URL(url).protocol === "file:";
-  } catch {
-    return false;
-  }
-}
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".css": "text/css",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".json": "application/json",
+};
 
-function attachPackagedNavigationGuards(win: BrowserWindow): void {
-  // Clerk redirects to "/" after sign-in which resolves to file:/// in a packaged app.
-  // Just block the navigation — Clerk's auth state change re-renders <Show when="signed-in">
-  // without needing a page reload, which would race against session restore.
-  win.webContents.on("will-navigate", (event, url) => {
-    if (!isFileUrl(url)) return;
-    event.preventDefault();
-    console.warn("[main] Blocked file:// navigation:", url);
+// Serve the built renderer from a local HTTP server so Clerk (and any other
+// auth library) gets a valid http:// origin instead of file://.
+function startRendererServer(): Promise<{ url: string; close: () => void }> {
+  const rendererDir = path.join(__dirname, "../../renderer");
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const urlPath = (req.url ?? "/").split("?")[0].split("#")[0];
+      const rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
+      const fullPath = path.join(rendererDir, rel);
+      if (!fullPath.startsWith(rendererDir)) { res.writeHead(403); res.end(); return; }
+      fs.readFile(fullPath, (err, data) => {
+        if (err) {
+          fs.readFile(path.join(rendererDir, "index.html"), (_e, idx) => {
+            if (idx) { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(idx); }
+            else { res.writeHead(404); res.end(); }
+          });
+          return;
+        }
+        const ct = MIME[path.extname(rel).toLowerCase()] ?? "application/octet-stream";
+        res.writeHead(200, { "Content-Type": ct });
+        res.end(data);
+      });
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as { port: number };
+      resolve({ url: `http://127.0.0.1:${port}`, close: () => server.close() });
+    });
+    server.on("error", reject);
   });
 }
 
-function createWindow() {
+async function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -461,20 +490,18 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      // Some dev setups fail to expose preload when sandboxed; keep production sandboxed.
       sandbox: !isDev,
     },
   });
 
-  win.once("ready-to-show", () => {
-    win.show();
-  });
+  win.once("ready-to-show", () => win.show());
 
   if (isDev) {
     loadDevRenderer(win);
   } else {
-    attachPackagedNavigationGuards(win);
-    void win.loadFile(path.join(__dirname, "../../renderer/index.html"));
+    const { url, close } = await startRendererServer();
+    await win.loadURL(url);
+    app.on("before-quit", close);
   }
 
   return win;
@@ -482,9 +509,9 @@ function createWindow() {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   initStore();
-  const win = createWindow();
+  const win = await createWindow();
 
   // ── Device ────────────────────────────────────────────────────────────────
   ipcMain.handle("device:getId", () => getOrCreateDeviceId());
@@ -793,7 +820,7 @@ app.whenReady().then(() => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
   });
 });
 
