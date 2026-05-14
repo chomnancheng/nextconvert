@@ -73,9 +73,10 @@ export interface TemplateRecord {
   name: string;
   profileImage: string;
   profileName: string;
-  postDate: string;
+  postDate?: string;
   readMoreText: string;
   commentLink?: string;
+  outputDir?: string;
   createdAt: string;
 }
 

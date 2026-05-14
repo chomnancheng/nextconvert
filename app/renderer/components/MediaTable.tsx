@@ -152,7 +152,7 @@ export default function MediaTable({
                     <p className="truncate max-w-[180px] text-xs font-medium text-foreground">
                       {item.name}
                     </p>
-                    {fp?.outputPath && status === "done" && (
+                    {fp?.outputPath && (
                       <button
                         type="button"
                         onClick={() => showInFinder(fp.outputPath!)}

@@ -349,7 +349,7 @@ export default function SettingsPanel({
             <p className="text-[11px] text-muted-foreground">
               Videos saved to <span className="font-mono">
                 {settings.outputDir || "<input folder>"}
-              </span>/converted-YYYY-MM-DD-HHmm/
+              </span>/converted/
             </p>
           </Field>
 

@@ -31,6 +31,9 @@ export default function ConvertBar({
   const isIdle = status === "idle";
 
   const showInFinder = (p: string) => window.electronAPI.showItem(p);
+  const savedCount = outputPaths.length;
+  const showSavedBanner = savedCount > 0 && (isRunning || isDone);
+  const latestOutputPath = savedCount > 0 ? outputPaths[savedCount - 1]! : "";
 
   return (
     <div className="flex flex-col gap-3">
@@ -71,7 +74,7 @@ export default function ConvertBar({
           </span>
         )}
 
-        {(isDone || isError) && (
+        {(isDone || isError || (isRunning && savedCount > 0)) && (
           <button
             type="button"
             onClick={onReset}
@@ -100,22 +103,44 @@ export default function ConvertBar({
         </div>
       )}
 
-      {/* ── Success notice ── */}
-      {isDone && outputPaths.length > 0 && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900 dark:bg-green-950/40">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-          <p className="text-xs font-medium text-green-800 dark:text-green-300">
-            {outputPaths.length === 1
-              ? "Done — 1 video saved."
-              : `Done — ${outputPaths.length} videos saved.`}
+      {/* ── Saved videos (partial while running, full when done) ── */}
+      {showSavedBanner && (
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-lg border px-3 py-2",
+            isDone
+              ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/40"
+              : "border-border bg-muted/60",
+          )}
+        >
+          <CheckCircle2
+            className={cn(
+              "h-4 w-4 shrink-0",
+              isDone ? "text-green-600 dark:text-green-400" : "text-muted-foreground",
+            )}
+          />
+          <p
+            className={cn(
+              "text-xs font-medium",
+              isDone ? "text-green-800 dark:text-green-300" : "text-foreground",
+            )}
+          >
+            {isDone
+              ? savedCount === 1
+                ? "Done — 1 video saved."
+                : `Done — ${savedCount} videos saved.`
+              : savedCount === 1
+                ? "1 video saved so far…"
+                : `${savedCount}/${fileCount} videos saved…`}
           </p>
           <button
             type="button"
-            onClick={() => showInFinder(outputPaths[0])}
+            onClick={() => showInFinder(latestOutputPath)}
             className={cn(
-              "ml-auto shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1",
-              "text-[11px] font-medium text-green-700 dark:text-green-300",
-              "hover:bg-green-100 dark:hover:bg-green-900/60 transition-colors",
+              "ml-auto shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+              isDone
+                ? "text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/60"
+                : "text-foreground hover:bg-muted",
             )}
           >
             <FolderOpen className="h-3.5 w-3.5" />
@@ -123,7 +148,7 @@ export default function ConvertBar({
           </button>
         </div>
       )}
-      {isDone && outputPaths.length > 0 && errorMessage && (
+      {isDone && savedCount > 0 && errorMessage && (
         <p className="text-[11px] text-amber-700 dark:text-amber-400">
           {errorMessage}
         </p>

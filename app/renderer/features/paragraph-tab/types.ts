@@ -6,6 +6,8 @@ export interface Template {
   postDate?: string;
   readMoreText: string;
   commentLink?: string;  // deprecated; ignored by canvas
+  /** Reel Stories (paragraph): if set, MP4s write here (no /converted). Overrides Settings → Output for that run. */
+  outputDir?: string;
   createdAt: string;
 }
 

@@ -79,7 +79,7 @@ export interface Settings {
   music: MusicSettings;
   videoBg: VideoBgSettings;
   metadata: MetadataSettings;
-  /** Empty = auto (converted-datetime/ next to first input). Set = user-chosen fixed dir. */
+  /** Empty = write next to each input under a `converted` subfolder. Set = base folder; videos go in `<base>/converted/`. */
   outputDir: string;
   encoder: EncoderMode;
   /** Still images and photo-on-B-roll framing. */

@@ -8,6 +8,7 @@
  */
 
 import { spawn } from "child_process";
+import { createHash } from "crypto";
 import fs from "fs";
 import path from "path";
 import type { ChildProcess } from "child_process";
@@ -97,8 +98,7 @@ export interface ConvertOptions {
    */
   outputNameBase?: string;
   /**
-   * Subdirectory name for this batch, e.g. "converted-2026-05-04-1430".
-   * Created next to each input image. Defaults to "converted" if omitted.
+   * Subdirectory under baseDir when outputPath is not set. Renderer uses "converted".
    */
   batchDir?: string;
   preset?: SizePreset;
@@ -114,6 +114,11 @@ export interface ConvertOptions {
   audioVolume?: number;
   /** Encoder profile selected by user. */
   encoder?: EncoderMode;
+  /**
+   * Optional stem hint for the output filename (e.g. from post text). The main process
+   * picks a unique `…/<slug>_reel.mp4` so existing files are never overwritten.
+   */
+  outputSlug?: string;
 }
 
 // Legacy shape used by IPC — kept for backwards compat with useConvert
@@ -139,6 +144,7 @@ export interface ConvertOptionsLegacy {
   audioPath?: string;
   audioVolume?: number;
   encoder?: EncoderMode;
+  outputSlug?: string;
 }
 
 export interface ConvertResult {
@@ -182,16 +188,49 @@ function stillImageVF(w: number, h: number, fit: PhotoFitMode = "cover"): string
   return scaleFilter(w, h);
 }
 
+function sanitizeStem(raw: string): string {
+  const s = raw
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase()
+    .slice(0, 44);
+  return s || "reel";
+}
+
+function stemFromReelBasename(file: string): string {
+  const noExt = file.replace(/\.mp4$/i, "");
+  const cut = noExt.replace(/_reel$/i, "");
+  return cut || noExt || "reel";
+}
+
+/** Never overwrites: picks `<stem>_reel.mp4` or `<stem>-<hash>_reel.mp4`. */
+function allocateUniqueReelPath(outDir: string, stemHint: string): string {
+  fs.mkdirSync(outDir, { recursive: true });
+  const base = sanitizeStem(stemHint);
+  const makePath = (core: string) => path.join(outDir, `${core}_reel.mp4`);
+  let candidate = makePath(base);
+  if (!fs.existsSync(candidate)) return candidate;
+  for (let n = 0; n < 500; n++) {
+    const tag = createHash("sha256")
+      .update(`${candidate}|${n}|${Date.now()}`)
+      .digest("hex")
+      .slice(0, 6);
+    candidate = makePath(`${base}-${tag}`);
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+  return makePath(`${base}-${Date.now()}`);
+}
+
 /**
  * Resolve the output file path.
  *
  * Logic:
  * - If an explicit outputPath is given, use it (parent dir created if needed).
- * - Otherwise build: <baseDir>/converted-YYYY-MM-DD-HHmm/<imageName>_reel.mp4
- *   where baseDir is either the user-chosen outputDir or the directory of the input image.
- *
- * The `batchDir` parameter (e.g. "converted-2026-05-04-1430") is computed once
- * per batch by the caller so all images in one run land in the same folder.
+ * - Otherwise build: <baseDir>/<batchDir>/<imageName>_reel.mp4
+ *   where baseDir is either the user-chosen outputDir or the directory of the input image,
+ *   and batchDir defaults to "converted" (set by the renderer).
  */
 function resolveOutputPath(
   inputPath: string,
@@ -301,6 +340,7 @@ export async function convertOne(
     outputNameBase,
     overlayImageMaxPercent: rawOverlayMaxPct,
     photoFit = "cover",
+    outputSlug,
   } = options;
 
   if (!input?.trim()) {
@@ -309,7 +349,14 @@ export async function convertOne(
 
   const [w, h] = resolvePresetSize(preset, customWidth, customHeight);
   const crf = qualityToCrf(quality);
-  const outputPath = resolveOutputPath(input, options.outputPath, batchDir, outputNameBase);
+  const tentative = resolveOutputPath(input, options.outputPath, batchDir, outputNameBase);
+  const outDir = path.dirname(tentative);
+  const slugHint =
+    [outputSlug, outputNameBase]
+      .map((s) => (typeof s === "string" ? s.trim() : ""))
+      .find((s) => s.length > 0) ?? "";
+  const stemSource = slugHint || stemFromReelBasename(path.basename(tentative));
+  const outputPath = allocateUniqueReelPath(outDir, stemSource);
   const vol = Math.max(0, Math.min(100, audioVolume)) / 100;
   const videoEncoder = resolveVideoEncoder(encoder);
 
@@ -485,6 +532,7 @@ export async function convert(
       audioPath: raw.audioPath,
       audioVolume: raw.audioVolume,
       encoder: raw.encoder,
+      outputSlug: raw.outputSlug,
     },
     onProgress,
     jobId,

@@ -42,6 +42,8 @@ interface ConvertOptions {
   audioPath?: string;
   audioVolume?: number;
   encoder?: "auto" | "cpu" | "nvidia" | "intel" | "amd" | "apple";
+  /** Hint for unique output stem (e.g. from post text); main allocates final path. */
+  outputSlug?: string;
 }
 
 interface ConvertResult {
@@ -124,6 +126,8 @@ interface TemplateRecord {
   postDate?: string;
   readMoreText: string;
   commentLink?: string;
+  /** Paragraph tab: optional per-profile output folder (absolute path). */
+  outputDir?: string;
   createdAt: string;
 }
 

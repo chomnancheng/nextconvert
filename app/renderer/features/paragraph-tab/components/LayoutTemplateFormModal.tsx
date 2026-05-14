@@ -5,9 +5,9 @@ import type { LayoutTemplate, CountRanges } from "../types";
 import { DEFAULT_COUNT_RANGES } from "../types";
 
 const FIELDS: { token: string; hint: string }[] = [
-  { token: "{{profileName}}",  hint: "Profile name text" },
+  { token: "{{profileName}}",  hint: "Profile name — default layout blurs + frosted overlay (rumor look)" },
   { token: "{{profileImage}}", hint: "Profile image (data URL injected automatically)" },
-  { token: "{{postDate}}",     hint: "Today's date string" },
+  { token: "{{postDate}}",     hint: "Random each render: Today at… or Nh ago (N = 1–24)" },
   { token: "{{text}}",         hint: "Post body — rendered as HTML" },
   { token: "{{readMoreText}}", hint: "Read-more link label" },
   { token: "{{likeCount}}",    hint: "Random like count (e.g. 5.4K) — unique per post" },

@@ -7,12 +7,14 @@ type FormData = {
   profileName: string;
   profileImage: string;
   readMoreText: string;
+  outputDir: string;
 };
 
 const EMPTY: FormData = {
   profileName: "",
   profileImage: "",
   readMoreText: "Link read more at comment",
+  outputDir: "",
 };
 
 interface TemplateFormModalProps {
@@ -42,6 +44,7 @@ export default function TemplateFormModal({
               profileName: template.profileName,
               profileImage: template.profileImage,
               readMoreText: template.readMoreText,
+              outputDir: template.outputDir ?? "",
             }
           : { ...EMPTY },
       );
@@ -55,6 +58,11 @@ export default function TemplateFormModal({
     if (paths.length > 0) setForm((f) => ({ ...f, profileImage: paths[0] }));
   };
 
+  const handlePickOutputFolder = async () => {
+    const dir = await window.electronAPI.pickFolder();
+    if (dir) setForm((f) => ({ ...f, outputDir: dir }));
+  };
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!form.profileName.trim()) return;
@@ -63,16 +71,17 @@ export default function TemplateFormModal({
       profileName: form.profileName.trim(),
       profileImage: form.profileImage,
       readMoreText: form.readMoreText,
+      outputDir: form.outputDir.trim(),
     });
   };
 
   const inputCls =
-    "flex h-8 w-full rounded-md border border-border bg-background px-3 text-xs " +
+    "flex h-9 w-full rounded-md border border-border bg-background px-3 text-sm " +
     "text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden />
 
       <div className="relative z-10 w-full max-w-md rounded-xl border border-border bg-background shadow-2xl">
         {/* Header */}
@@ -114,7 +123,7 @@ export default function TemplateFormModal({
               <button
                 type="button"
                 onClick={handlePickImage}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background hover:bg-muted transition-colors"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background hover:bg-muted transition-colors"
                 aria-label="Pick profile image"
               >
                 <FolderOpen className="h-3.5 w-3.5" />
@@ -131,6 +140,29 @@ export default function TemplateFormModal({
               placeholder="e.g. Link read more at comment"
               className={inputCls}
             />
+          </Field>
+
+          <Field label="Output folder (optional)" htmlFor="tf-outdir">
+            <div className="flex gap-1.5">
+              <input
+                id="tf-outdir"
+                value={form.outputDir}
+                onChange={(e) => setForm((f) => ({ ...f, outputDir: e.target.value }))}
+                placeholder="Uses Settings → Output + /converted/ when empty"
+                className={cn(inputCls, "flex-1 font-mono text-[11px]")}
+              />
+              <button
+                type="button"
+                onClick={() => void handlePickOutputFolder()}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background hover:bg-muted transition-colors"
+                aria-label="Choose output folder"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Reel Stories: when set, videos save directly in this folder (no /converted). Overrides Settings output for that tab only.
+            </p>
           </Field>
 
           {/* Footer */}

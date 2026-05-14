@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Settings } from "@/renderer/hooks/useSettings";
 import type { ImageFile } from "@/renderer/hooks/useImageFiles";
+import { slugFromPlainText } from "@/renderer/lib/outputSlug";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,13 +50,19 @@ function effectiveConcurrency(settingsConcurrency: number | undefined, taskCount
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeBatchDirName(): string {
-  const now = new Date();
-  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
-  return (
-    `converted-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-    `-${pad(now.getHours())}${pad(now.getMinutes())}`
-  );
+/** Subfolder under the chosen output base (or next to input when base is empty). */
+const BATCH_DIR = "converted";
+
+export interface ConvertRunOptions {
+  /**
+   * When set (e.g. Reel Stories profile folder), MP4s are written directly into this path
+   * with no extra `/converted` segment. Otherwise uses Settings output + `/converted`.
+   */
+  outputDirOverride?: string | null;
+}
+
+function stripTrailingPathSeparators(dir: string): string {
+  return dir.replace(/[/\\]+$/, "");
 }
 
 function shuffleInPlace<T>(arr: T[]): T[] {
@@ -110,7 +117,12 @@ export function useConvert() {
   }, []);
 
   const run = useCallback(
-    async (images: ImageFile[], mode: ConvertMode, settings: Settings) => {
+    async (
+      images: ImageFile[],
+      mode: ConvertMode,
+      settings: Settings,
+      runOptions?: ConvertRunOptions,
+    ) => {
       stopRequestedRef.current = false;
       activeJobIdsRef.current.clear();
 
@@ -137,8 +149,9 @@ export function useConvert() {
         return;
       }
 
-      const batchDir = makeBatchDirName();
+      const batchDir = BATCH_DIR;
       const batchId = Math.random().toString(36).slice(2);
+      const outputOverride = stripTrailingPathSeparators(runOptions?.outputDirOverride?.trim() ?? "");
 
       const initProgress: Record<string, FileProgress> = {};
       for (const id of primaryIds) {
@@ -212,11 +225,21 @@ export function useConvert() {
         }
 
         // Compute explicit output path so naming is always predictable
-        const contentDir = mode === "by-images" ? dirname(primaryPath) : dirname(primaryPath);
-        const outDir = settings.outputDir
-          ? `${settings.outputDir}/${batchDir}`
-          : `${contentDir}/${batchDir}`;
+        const contentDir = dirname(primaryPath);
+        const outDir = outputOverride
+          ? outputOverride
+          : settings.outputDir
+            ? `${stripTrailingPathSeparators(settings.outputDir)}/${batchDir}`
+            : `${contentDir}/${batchDir}`;
         const outputPath = `${outDir}/${outputBase}_reel.mp4`;
+
+        let outputSlug: string;
+        if (mode === "by-images") {
+          const img = images[i];
+          outputSlug = img.outputSlug ?? slugFromPlainText(img.name.replace(/\.[^.]+$/, ""), 36);
+        } else {
+          outputSlug = slugFromPlainText(outputBase, 36);
+        }
 
         const options: ConvertOptions = {
           input,
@@ -228,6 +251,8 @@ export function useConvert() {
           photoFit: settings.photoFit,
           outputPath,
           batchDir,
+          outputNameBase: outputSlug,
+          outputSlug,
           preset: settings.preset,
           customWidth: settings.customWidth,
           customHeight: settings.customHeight,

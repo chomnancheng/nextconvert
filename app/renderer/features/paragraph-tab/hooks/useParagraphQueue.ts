@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { ParagraphQueueItem } from "../types";
+import { isQueueablePost } from "../utils/postValidation";
 
 export function useParagraphQueue() {
   const [items, setItems] = useState<ParagraphQueueItem[]>([]);
@@ -24,7 +25,7 @@ export function useParagraphQueue() {
 
   const appendItems = useCallback((lines: string[]) => {
     setItems((prev) => {
-      const filtered = lines.filter((l) => l.trim().length > 0);
+      const filtered = lines.filter((l) => isQueueablePost(l));
       const start = prev.length;
       return [
         ...prev,

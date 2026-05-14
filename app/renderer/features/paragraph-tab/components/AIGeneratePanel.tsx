@@ -11,6 +11,7 @@ import {
 import type { WritingStyle } from "../types";
 import { useWritingStyles } from "../hooks/useWritingStyles";
 import WritingStyleFormModal from "./WritingStyleFormModal";
+import { countWordsInPost, isQueueablePost } from "../utils/postValidation";
 
 interface AIGeneratePanelProps {
   onGenerate: (posts: string[]) => void;
@@ -46,17 +47,8 @@ const SYSTEM_PROMPT =
   "Separate each post with one blank line. " +
   "Use HTML span tags for emphasis exactly as specified. " +
   "Respect the requested maximum word count for every post. " +
+  "Never output a placeholder instead of a post (no line that is only dashes, underscores, or punctuation). " +
   "Return ONLY the posts — no numbering, no labels, no preamble.";
-
-function stripHtml(html: string): string {
-  const el = document.createElement("div");
-  el.innerHTML = html;
-  return el.textContent ?? html;
-}
-
-function countWords(html: string): number {
-  return stripHtml(html).trim().split(/\s+/).filter(Boolean).length;
-}
 
 function trimTextToWordLimit(text: string, remaining: { value: number }): string {
   const tokens = text.match(/\s+|\S+/g) ?? [];
@@ -93,7 +85,7 @@ function trimNodeToWordLimit(node: Node, remaining: { value: number }): void {
 
 function enforceWordLimit(html: string, maxWords: number): string {
   const limit = Math.max(1, Math.floor(maxWords));
-  if (countWords(html) <= limit) return html.trim();
+  if (countWordsInPost(html) <= limit) return html.trim();
 
   const template = document.createElement("template");
   template.innerHTML = html.trim();
@@ -150,7 +142,7 @@ async function callAI(
     .split(/\n{2,}/)
     .map((p) => p.replace(/^\d+[.)]\s*/, "").trim())
     .map((p) => enforceWordLimit(p, wordLimit))
-    .filter((p) => countWords(p) > 0);
+    .filter((p) => isQueueablePost(p));
 }
 
 // ── Component ─────────────────────────────────────────────────────────────

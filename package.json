@@ -1,6 +1,6 @@
 {
   "name": "nextconvert",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "NextConvert — Reel Stories desktop converter (Electron + FFmpeg)",
   "author": "NextConvert Team",
   "main": "dist/electron/electron/main.js",

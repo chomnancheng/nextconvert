@@ -31,6 +31,13 @@ function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (Math.max(min, max) - Math.min(min, max) + 1)) + Math.min(min, max);
 }
 
+/** Facebook-style timestamp: clock "today" or relative "Nh ago" (N random 1–24), picked per render. */
+function randomPostDateStr(): string {
+  if (Math.random() < 0.45) return todayDateStr();
+  const hours = randInt(1, 24);
+  return `${hours}h ago`;
+}
+
 function randomCounts(ranges: CountRanges) {
   return {
     likeCount:    formatCount(randInt(ranges.likeMin,    ranges.likeMax)),
@@ -70,7 +77,7 @@ export async function renderHtmlTemplateToDataUrl(
     .replace(/\{\{text\}\}/g, postText)
     .replace(/\{\{profileName\}\}/g, escapeHtml(profile.profileName))
     .replace(/\{\{profileImage\}\}/g, profileImageSrc)
-    .replace(/\{\{postDate\}\}/g, escapeHtml(todayDateStr()))
+    .replace(/\{\{postDate\}\}/g, escapeHtml(randomPostDateStr()))
     .replace(/\{\{readMoreText\}\}/g, escapeHtml(profile.readMoreText ?? ""))
     .replace(/\{\{likeCount\}\}/g, likeCount)
     .replace(/\{\{commentCount\}\}/g, commentCount)
@@ -93,13 +100,21 @@ export async function renderHtmlTemplateToDataUrl(
     const root = (wrap.firstElementChild as HTMLElement | null) ?? wrap;
     root.style.width = `${dims.width}px`;
     root.style.height = `${dims.height}px`;
+    root.style.setProperty("-webkit-font-smoothing", "antialiased");
+    root.style.setProperty("text-rendering", "optimizeLegibility");
+    root.style.setProperty("filter", "none");
 
     if (transparent) {
       root.style.background = "transparent";
       root.style.backgroundImage = "none";
     }
 
-    return await toPng(root, { width: dims.width, height: dims.height, pixelRatio: 1 });
+    return await toPng(root, {
+      width: dims.width,
+      height: dims.height,
+      pixelRatio: 1,
+      skipAutoScale: true,
+    });
   } catch (err) {
     const error = new Error(`HTML render failed: ${toErrorMessage(err)}`);
     (error as Error & { cause: unknown }).cause = err;

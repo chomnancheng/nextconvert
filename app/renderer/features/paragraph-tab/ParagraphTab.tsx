@@ -30,6 +30,7 @@ import AIGeneratePanel from "./components/AIGeneratePanel";
 import TemplateFormModal from "./components/TemplateFormModal";
 import LayoutTemplateFormModal from "./components/LayoutTemplateFormModal";
 import { renderHtmlTemplateToDataUrl } from "./utils/renderHtmlTemplate";
+import { slugFromPlainText } from "@/renderer/lib/outputSlug";
 
 interface ParagraphTabProps {
   settings: Settings;
@@ -164,19 +165,33 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
   const isError   = status === "error";
   const isLocked  = isRunning || preparing;
 
-  // Fetch output file sizes once conversion completes
+  // Fetch output file sizes as each row finishes (paths come from fileProgress, not outputPaths order)
   useEffect(() => {
-    if (!isDone || outputPaths.length === 0 || items.length === 0) return;
-    const paths = outputPaths.slice(0, items.length);
+    const pairs: { id: string; path: string }[] = [];
+    for (const item of items) {
+      const fp = fileProgress[item.id];
+      if (fp?.status === "done" && fp.outputPath) {
+        pairs.push({ id: item.id, path: fp.outputPath });
+      }
+    }
+    if (pairs.length === 0) return;
+    const paths = [...new Set(pairs.map((p) => p.path))];
+    let cancelled = false;
     void window.electronAPI.getFileSizes(paths).then((sizeMap) => {
-      const byId: Record<string, number> = {};
-      items.forEach((item, i) => {
-        const p = paths[i];
-        if (p && sizeMap[p]) byId[item.id] = sizeMap[p];
+      if (cancelled) return;
+      setOutputSizesById((prev) => {
+        const next = { ...prev };
+        for (const { id, path } of pairs) {
+          const sz = sizeMap[path];
+          if (sz != null) next[id] = sz;
+        }
+        return next;
       });
-      setOutputSizesById(byId);
     });
-  }, [isDone, outputPaths, items]);
+    return () => {
+      cancelled = true;
+    };
+  }, [items, fileProgress]);
 
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId) ?? null,
@@ -217,8 +232,8 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
       setPrepError("Select a layout before converting.");
       return;
     }
-    if (!settings.outputDir) {
-      setPrepError("Select an output folder in Settings → Output before converting.");
+    if (!selectedTemplate.outputDir?.trim() && !settings.outputDir) {
+      setPrepError("Set an output folder on this profile, or choose one in Settings → Output.");
       return;
     }
     if (items.length === 0) {
@@ -243,6 +258,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
           name: `Post #${item.lineNumber}`,
           path: tempPath,
           previewUrl: dataUrl,
+          outputSlug: slugFromPlainText(item.text, 48),
         });
       }
     } catch (err) {
@@ -252,7 +268,9 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
     }
 
     setPreparing(false);
-    await run(syntheticFiles, "by-images", settings);
+    await run(syntheticFiles, "by-images", settings, {
+      outputDirOverride: selectedTemplate.outputDir?.trim() || undefined,
+    });
     void window.electronAPI.cleanupParagraphTemp();
   }, [selectedTemplate, selectedLayout, settings, items, run]);
 
@@ -433,7 +451,6 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
             items={items}
             fileProgress={fileProgress}
             outputSizes={outputSizesById}
-            outputPaths={outputPaths}
             onRemove={removeItem}
             onClear={handleClearAll}
             disabled={isLocked}
@@ -477,7 +494,7 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
               </span>
             )}
 
-            {(isDone || isError) && (
+            {(isDone || isError || (isRunning && outputPaths.length > 0)) && (
               <button
                 type="button"
                 onClick={() => { reset(); setPrepError(null); }}
@@ -509,16 +526,44 @@ export default function ParagraphTab({ settings }: ParagraphTabProps) {
             </div>
           )}
 
-          {isDone && outputPaths.length > 0 && (
-            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900 dark:bg-green-950/40">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-              <p className="text-xs font-medium text-green-800 dark:text-green-300">
-                {outputPaths.length === 1 ? "Done — 1 video saved." : `Done — ${outputPaths.length} videos saved.`}
+          {(isRunning || isDone) && outputPaths.length > 0 && (
+            <div
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-3 py-2",
+                isDone
+                  ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/40"
+                  : "border-border bg-muted/60",
+              )}
+            >
+              <CheckCircle2
+                className={cn(
+                  "h-4 w-4 shrink-0",
+                  isDone ? "text-green-600 dark:text-green-400" : "text-muted-foreground",
+                )}
+              />
+              <p
+                className={cn(
+                  "text-xs font-medium",
+                  isDone ? "text-green-800 dark:text-green-300" : "text-foreground",
+                )}
+              >
+                {isDone
+                  ? outputPaths.length === 1
+                    ? "Done — 1 video saved."
+                    : `Done — ${outputPaths.length} videos saved.`
+                  : outputPaths.length === 1
+                    ? "1 video saved so far…"
+                    : `${outputPaths.length}/${items.length} videos saved…`}
               </p>
               <button
                 type="button"
-                onClick={() => void window.electronAPI.showItem(outputPaths[0])}
-                className="ml-auto shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/60 transition-colors"
+                onClick={() => void window.electronAPI.showItem(outputPaths[outputPaths.length - 1]!)}
+                className={cn(
+                  "ml-auto shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                  isDone
+                    ? "text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/60"
+                    : "text-foreground hover:bg-muted",
+                )}
               >
                 <FolderOpen className="h-3.5 w-3.5" />
                 Show in Finder

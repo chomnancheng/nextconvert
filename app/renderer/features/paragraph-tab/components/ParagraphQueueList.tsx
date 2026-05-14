@@ -7,7 +7,6 @@ interface ParagraphQueueListProps {
   items: ParagraphQueueItem[];
   fileProgress: Record<string, FileProgress>;
   outputSizes?: Record<string, number>;
-  outputPaths?: string[];
   onRemove: (id: string) => void;
   onClear: () => void;
   disabled?: boolean;
@@ -32,7 +31,6 @@ export default function ParagraphQueueList({
   items,
   fileProgress,
   outputSizes = {},
-  outputPaths = [],
   onRemove,
   onClear,
   disabled = false,
@@ -76,12 +74,12 @@ export default function ParagraphQueueList({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {items.map((item, idx) => {
+            {items.map((item) => {
               const fp = fileProgress[item.id];
               const status = fp?.status ?? "pending";
               const pct = fp?.progress ?? 0;
               const outSize = outputSizes[item.id];
-              const outPath = outputPaths[idx];
+              const outPath = fp?.outputPath;
               const words = countWords(item.text);
 
               return (

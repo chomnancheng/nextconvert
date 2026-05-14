@@ -7,6 +7,8 @@ export interface ImageFile {
   path: string;
   /** URL safe for <img src>. blob: or file:// */
   previewUrl: string;
+  /** Optional stem hint for exported MP4 name (e.g. slug from paragraph text). */
+  outputSlug?: string;
 }
 
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp"]);
